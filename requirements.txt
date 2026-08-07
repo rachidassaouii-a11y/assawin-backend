@@ -5,3 +5,4 @@ langchain-openai==0.0.8
 pypdf==4.1.0
 python-multipart==0.0.9
 pydantic==2.6.4
+langchain-openai==1.0.3
