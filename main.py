@@ -1,3 +1,8 @@
+
+R A <rachid.assaouii@gmail.com>
+22:57 (il y a 0 minute)
+À moi
+
 import os
 import google.generativeai as genai
 from flask import Flask, request, jsonify
@@ -9,6 +14,10 @@ genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 # Initialisation du modèle
 model = genai.GenerativeModel('gemini-1.5-flash')
+
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({"status": "ASSAWIN API is running successfully!"})
 
 @app.route('/ask', methods=['POST'])
 def ask():
@@ -23,3 +32,4 @@ def ask():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+)
