@@ -5,7 +5,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
@@ -32,16 +32,16 @@ class AnalysisResponse(BaseModel):
     risk_score: int = Field(description="Score global de risque de 0 à 100")
     risks: List[RiskItem]
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
 parser = JsonOutputParser(pydantic_object=AnalysisResponse)
 
 SYSTEM_PROMPT = """Tu es un expert en analyse de risques contractuels BTP (CCTP, CCAP, DPGF).
-Ton rôle est d'analyser le document fourni et d'identifier les risques financiers, juridiques et opérationnels majeurs pour l'entreprise de bâtiment.
+Ton rôle est d'analyser le document fourni et d'identifier les risques financiers, juridiques et opérationnels majeurs.
 
 Recherche spécifiquement :
 1. Les pénalités de retard excessives ou non plafonnées.
 2. Les clauses de révision ou d'actualisation de prix défavorables.
-3. Les transferts de responsabilités inhabituels (ex: études d'exécution à la charge de l'entreprise non prévues).
+3. Les transferts de responsabilités inhabituels (ex: études d'exécution à la charge de l'entreprise).
 4. Les jalons de planning irréalistes.
 5. Les conditions de paiement et retenues de garantie litigieuses.
 
@@ -56,11 +56,8 @@ prompt_template = ChatPromptTemplate.from_messages([
 
 chain = prompt_template | llm | parser
 
-@app.post("/analyze", response_model=AnalysisResponse)
+@app.post("/analyze")
 async def analyze_document(file: UploadFile = File(...)):
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont supportés pour le moment.")
-
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             content = await file.read()
@@ -70,7 +67,7 @@ async def analyze_document(file: UploadFile = File(...)):
         loader = PyPDFLoader(tmp_path)
         docs = loader.load()
         full_text = "\n".join([page.page_content for page in docs])
-        extracted_text = full_text[:30000] 
+        extracted_text = full_text[:30000]
 
         os.remove(tmp_path)
 
