@@ -32,7 +32,7 @@ class AnalysisResponse(BaseModel):
     risk_score: int = Field(description="Score global de risque de 0 à 100")
     risks: List[RiskItem]
 
-llm = ChatOpenAI(model="gpt-4o", temperature=0)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 parser = JsonOutputParser(pydantic_object=AnalysisResponse)
 
 SYSTEM_PROMPT = """Tu es un expert en analyse de risques contractuels BTP (CCTP, CCAP, DPGF).
