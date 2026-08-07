@@ -1,6 +1,4 @@
-fastapi
-uvicorn
 flask
 google-generativeai
-python-multipart
-pydantic
+gunicorn
+
