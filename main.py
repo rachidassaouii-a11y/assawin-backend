@@ -1,8 +1,3 @@
-
-R A <rachid.assaouii@gmail.com>
-22:57 (il y a 0 minute)
-À moi
-
 import os
 import google.generativeai as genai
 from flask import Flask, request, jsonify
