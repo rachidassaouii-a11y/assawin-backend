@@ -1,4 +1,5 @@
-flask
+fastapi
+uvicorn[standard]
+python-multipart
+pypdf
 google-generativeai
-gunicorn
-
