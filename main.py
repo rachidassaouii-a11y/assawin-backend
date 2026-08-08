@@ -1,6 +1,6 @@
 # ASSAWIN — `main.py` PRODUCTION DEMO
 
-````python
+
 import os
 import json
 import tempfile
