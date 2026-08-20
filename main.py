@@ -21,7 +21,6 @@ app.add_middleware(
 def on_startup():
     init_db()
 
-app.include_router(auth.router)
 
 @app.get("/")
 def root():
