@@ -1,39 +1,31 @@
-import os
-import threading
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.database import init_db
+from app.routers import auth
 
-from app.core.database import init_db, SessionLocal
-from app.routers import auth, chiffrage, passport
-from app.workers.chiffrage_worker import run_periodic_recalculation
+app = FastAPI(
+    title="ASSAWIN BTP API",
+    version="1.0.0",
+    description="API Backend pour la gestion de chantiers et chiffrage inversé"
+)
 
-# =============== Lifecycle (Gestion du Démarrage/Arrêt) ===============
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 1. Création des tables en BDD au démarrage
-    print("🔧 Initialisation de la base de données PostgreSQL...")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+def on_startup():
     init_db()
 
-    # 2. Lancement du worker d'arrière-plan (Recalcul automatique)
-    print("🚀 Démarrage du worker d'arrière-plan (Chiffrage & Passport)...")
-    worker_thread = threading.Thread(
-        target=run_periodic_recalculation,
-        args=(SessionLocal,),
-        daemon=True
-    )
-    worker_thread.start()
+app.include_router(auth.router)
 
-    yield  # L'application FastAPI tourne et accepte des requêtes
-
-    print("🛑 Arrêt propre de l'application...")
-
-# =============== Instance FastAPI ===============
-app = FastAPI(
-    title="ASSAWIN OS Core API",
-    description="Moteur économique BTP, Chiffrage Inversé, Passport Engine et Auth JWT",
-    version="1.0.0",
-    lifespan=lifespan
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "ASSAWIN API est opérationnelle 🚀"}
 )
 
 # =============== Configuration CORS ===============
