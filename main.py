@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
+from app.routers.truthgate import router as truthgate_router
 
 app = FastAPI(
     title="Assawin Backend API",
@@ -16,6 +17,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(truthgate_router)
+
 @app.on_event("startup")
 async def startup_event():
     init_db()
@@ -23,7 +26,3 @@ async def startup_event():
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Assawin API Running"}
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
