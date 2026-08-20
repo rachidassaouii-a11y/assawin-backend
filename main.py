@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
+
 from app.routers.truthgate import router as truthgate_router
+from app.routers.devis import router as devis_router
+from app.routers.projets import router as projets_router
+from app.routers.dashboard import router as dashboard_router
 
 app = FastAPI(
     title="Assawin Backend API",
@@ -18,6 +22,9 @@ app.add_middleware(
 )
 
 app.include_router(truthgate_router)
+app.include_router(devis_router)
+app.include_router(projets_router)
+app.include_router(dashboard_router)
 
 @app.on_event("startup")
 async def startup_event():
