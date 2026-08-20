@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db import init_db
-from app.routers import auth, chiffrage, passport
+from app.core.database import init_db
 
-app = FastAPI(title="ASSAWIN API")
+app = FastAPI(
+    title="Assawin Backend API",
+    description="API Backend pour l'écosystème Assawin",
+    version="1.0.0"
+)
 
-# Configuration CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,14 +17,13 @@ app.add_middleware(
 )
 
 @app.on_event("startup")
-def on_startup():
+async def startup_event():
     init_db()
 
 @app.get("/")
-def root():
-    return {"status": "ok", "message": "ASSAWIN API est opérationnelle 🚀"}
+def read_root():
+    return {"status": "ok", "message": "Assawin API Running"}
 
-# Routeurs
-app.include_router(auth.router)
-app.include_router(chiffrage.router)
-app.include_router(passport.router)
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
