@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
 
+# Imports des routeurs
 from app.routers.truthgate import router as truthgate_router
 from app.routers.devis import router as devis_router
 from app.routers.projets import router as projets_router
@@ -33,3 +34,7 @@ async def startup_event():
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Assawin API Running"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
