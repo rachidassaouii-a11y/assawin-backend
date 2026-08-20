@@ -25,7 +25,9 @@ app.include_router(auth.router)
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "ASSAWIN API est opérationnelle 🚀"}
+return {"status": "ok", "message": "ASSAWIN API est opérationnelle 🚀"}
+
+
 
 
 # =============== Configuration CORS ===============
