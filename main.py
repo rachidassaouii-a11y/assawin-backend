@@ -3,21 +3,40 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
+# Importation des routeurs isolés dans app/routers/
+from app.routers import auth, dashboard, devis, projets, truthgate, wallet
+
 app = FastAPI(
     title="Assawin Backend API",
     description="API Backend pour l'écosystème Assawin BTP",
     version="1.0.0"
 )
 
+# Configuration CORS sécurisée
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://rachidassaouii-a11y.github.io",
+        "https://cdpn.io",
+        "https://codepen.io",
+        "http://localhost:3000",
+        "*"  # Permet les tests pendant la phase de développement
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- MODELS ---
+# --- INCLUSION DES ROUTEURS DE L'APPLICATION ---
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(devis.router, prefix="/api/v1")
+app.include_router(projets.router, prefix="/api/v1")
+app.include_router(truthgate.router, prefix="/api/v1")
+app.include_router(wallet.router, prefix="/api/v1")
+
+
+# --- MODÈLES LOCALISÉS ---
 class TruthGateCheckRequest(BaseModel):
     id_devis: str
 
@@ -34,7 +53,7 @@ class TruthGateResponse(BaseModel):
     issues: List[TruthGateIssue]
 
 
-# --- ROUTES PRINCIPALES ---
+# --- ROUTES SYSTÈME ---
 @app.get("/", tags=["Système"])
 def read_root():
     return {"status": "ok", "message": "Assawin API Running"}
@@ -44,7 +63,7 @@ def health_check():
     return {"status": "healthy"}
 
 
-# --- ROUTE DASHBOARD (Pour ton CodePen) ---
+# --- ROUTES DIRECTES (Maintien de la compatibilité) ---
 @app.get("/api/v1/dashboard/summary", tags=["Dashboard & Marges"])
 def get_dashboard_summary():
     return {
@@ -53,8 +72,6 @@ def get_dashboard_summary():
         "chiffre_affaires_signe": 28500.0
     }
 
-
-# --- ROUTES TRUTH GATE & DEVIS ---
 @app.post("/api/v1/truthgate/validate", response_model=TruthGateResponse, tags=["Truth Gate"])
 def validate_devis(payload: TruthGateCheckRequest):
     return TruthGateResponse(
