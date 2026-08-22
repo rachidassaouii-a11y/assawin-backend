@@ -3,9 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
-# Importation de tous les routeurs
-from app.routers import auth, dashboard, devis, projets, truthgate, wallet
-
 app = FastAPI(
     title="Assawin Backend API",
     description="API Backend pour l'écosystème Assawin BTP",
@@ -15,26 +12,11 @@ app = FastAPI(
 # Configuration CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://rachidassaouii-a11y.github.io",
-        "https://cdpn.io",
-        "https://codepen.io",
-        "http://localhost:3000",
-        "*"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# --- INCLUSION DE TOUS LES ROUTEURS ---
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(dashboard.router, prefix="/api/v1")
-app.include_router(devis.router, prefix="/api/v1")
-app.include_router(projets.router, prefix="/api/v1")
-app.include_router(truthgate.router, prefix="/api/v1")
-app.include_router(wallet.router, prefix="/api/v1")
-
 
 # --- MODÈLES LOCALISÉS ---
 class TruthGateCheckRequest(BaseModel):
@@ -52,6 +34,20 @@ class TruthGateResponse(BaseModel):
     warning_count: int
     issues: List[TruthGateIssue]
 
+class WalletProject(BaseModel):
+    id: str
+    name: str
+    status: str
+    total_value: float
+
+class WalletSummary(BaseModel):
+    total_projects: int
+    total_revenue: float
+    total_pending: float
+    cash_flow: float
+    next_priority: str
+    projects: List[WalletProject]
+
 
 # --- ROUTES SYSTÈME ---
 @app.get("/", tags=["Système"])
@@ -63,7 +59,7 @@ def health_check():
     return {"status": "healthy"}
 
 
-# --- ROUTES DIRECTES ---
+# --- ROUTES MÉTIEURS ---
 @app.get("/api/v1/dashboard/summary", tags=["Dashboard & Marges"])
 def get_dashboard_summary():
     return {
@@ -71,6 +67,20 @@ def get_dashboard_summary():
         "chantiers_en_cours": 2,
         "chiffre_affaires_signe": 28500.0
     }
+
+@app.get("/api/v1/wallet", response_model=WalletSummary, tags=["Wallet"])
+def get_wallet_summary():
+    return WalletSummary(
+        total_projects=5,
+        total_revenue=25000.00,
+        total_pending=8000.00,
+        cash_flow=17000.00,
+        next_priority="Créer un devis pour le projet Alpha",
+        projects=[
+            WalletProject(id="1", name="Projet Alpha", status="En cours", total_value=12000.00),
+            WalletProject(id="2", name="Projet Beta", status="Devis envoyé", total_value=5000.00)
+        ]
+    )
 
 @app.post("/api/v1/truthgate/validate", response_model=TruthGateResponse, tags=["Truth Gate"])
 def validate_devis(payload: TruthGateCheckRequest):
