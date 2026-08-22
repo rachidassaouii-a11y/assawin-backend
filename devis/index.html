@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASSAWIN BTP - Éditeur Devis & Truth Gate</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 p-4 md:p-8">
+  <div class="max-w-4xl mx-auto space-y-6">
+    
+    <header class="flex justify-between items-center border-b border-slate-700 pb-4">
+      <h1 class="text-2xl font-bold text-amber-500">ASSAWIN <span class="text-white text-sm">| Devis BTP</span></h1>
+      <span id="gate-badge" class="px-3 py-1 rounded text-xs font-bold bg-gray-700 text-gray-300">TRUTH GATE : ATTENTE</span>
+    </header>
+
+    <!-- Formulaire Devis -->
+    <div class="bg-slate-800 p-4 rounded-lg space-y-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="text-xs text-slate-400">Nom du Lot / Section</label>
+          <input type="text" id="nom-lot" value="Maçonnerie" class="w-full bg-slate-700 p-2 rounded text-sm text-white">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Acompte (%)</label>
+          <input type="number" id="acompte" value="30" oninput="calculate()" class="w-full bg-slate-700 p-2 rounded text-sm text-white">
+        </div>
+      </div>
+
+      <!-- Lignes de prestation -->
+      <div class="space-y-2">
+        <h3 class="text-sm font-semibold text-slate-300">Ouvrages & Prestations</h3>
+        <div class="grid grid-cols-12 gap-2 text-xs text-slate-400 font-bold">
+          <div class="col-span-4">Désignation</div>
+          <div class="col-span-2">Unité</div>
+          <div class="col-span-2">Qté</div>
+          <div class="col-span-2">Déboursé HT (€)</div>
+          <div class="col-span-2">Prix Vente HT (€)</div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-2">
+          <input type="text" id="des-1" value="Coulage dalle béton de propreté" class="col-span-4 bg-slate-700 p-2 rounded text-xs">
+          <select id="u-1" class="col-span-2 bg-slate-700 p-2 rounded text-xs">
+            <option value="m²">m²</option>
+            <option value="m³">m³</option>
+            <option value="ml">ml</option>
+            <option value="u">u</option>
+            <option value="f">f</option>
+            <option value="h">h</option>
+          </select>
+          <input type="number" id="q-1" value="50" oninput="calculate()" class="col-span-2 bg-slate-700 p-2 rounded text-xs">
+          <input type="number" id="deb-1" value="40" oninput="calculate()" class="col-span-2 bg-slate-700 p-2 rounded text-xs text-amber-400">
+          <input type="number" id="pv-1" value="75" oninput="calculate()" class="col-span-2 bg-slate-700 p-2 rounded text-xs text-emerald-400">
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Marges & TRUTH GATE -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-slate-800 p-4 rounded-lg border-l-4 border-amber-500">
+        <p class="text-xs text-slate-400">Total HT / Déboursé Sec</p>
+        <p class="text-xl font-bold"><span id="res-ht">0</span> € <span class="text-xs text-slate-400">/ <span id="res-deb">0</span> €</span></p>
+      </div>
+
+      <div class="bg-slate-800 p-4 rounded-lg border-l-4 border-emerald-500">
+        <p class="text-xs text-slate-400">Marge Brute / Taux</p>
+        <p class="text-xl font-bold"><span id="res-marge">0</span> € (<span id="res-taux">0</span>%)</p>
+      </div>
+
+      <div class="bg-slate-800 p-4 rounded-lg border-l-4 border-blue-500">
+        <p class="text-xs text-slate-400">Net TTC / Acompte</p>
+        <p class="text-xl font-bold"><span id="res-ttc">0</span> € <span class="text-xs text-blue-400">(Acompte: <span id="res-acompte">0</span> €)</span></p>
+      </div>
+    </div>
+
+    <!-- Alertes Truth Gate -->
+    <div id="truthgate-box" class="hidden p-4 rounded-lg bg-slate-800 border border-slate-700 space-y-2">
+      <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Analyse Truth Gate</h4>
+      <div id="truthgate-issues" class="space-y-1 text-sm"></div>
+    </div>
+
+  </div>
+
+  <script>
+    const API_URL = "https://assawin-api-2026-v2.onrender.com/api/v1/devis/calculate";
+
+    async function calculate() {
+      const payload = {
+        titre: "Nouveau Devis",
+        acompte_pct: parseFloat(document.getElementById('acompte').value) || 0,
+        lots: [{
+          nom_lot: document.getElementById('nom-lot').value,
+          lignes: [{
+            designation: document.getElementById('des-1').value,
+            unite: document.getElementById('u-1').value,
+            quantite: parseFloat(document.getElementById('q-1').value) || 0,
+            debourse_sec_unitaire: parseFloat(document.getElementById('deb-1').value) || 0,
+            prix_unitaire_ht: parseFloat(document.getElementById('pv-1').value) || 0,
+            taux_tva: 20.0
+          }]
+        }]
+      };
+
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        document.getElementById('res-ht').innerText = data.total_ht;
+        document.getElementById('res-deb').innerText = data.debourse_sec_total;
+        document.getElementById('res-marge').innerText = data.marge_brute_eur;
+        document.getElementById('res-taux').innerText = data.taux_marge_pct;
+        document.getElementById('res-ttc').innerText = data.total_ttc;
+        document.getElementById('res-acompte').innerText = data.acompte_montant;
+
+        const badge = document.getElementById('gate-badge');
+        const box = document.getElementById('truthgate-box');
+        const issuesContainer = document.getElementById('truthgate-issues');
+
+        if (data.can_send) {
+          badge.className = "px-3 py-1 rounded text-xs font-bold bg-emerald-900 text-emerald-300 border border-emerald-500";
+          badge.innerText = "TRUTH GATE : VALIDE (ENVOI AUTORISÉ)";
+        } else {
+          badge.className = "px-3 py-1 rounded text-xs font-bold bg-rose-900 text-rose-300 border border-rose-500";
+          badge.innerText = "TRUTH GATE : BLOQUÉ";
+        }
+
+        if (data.truth_gate_issues && data.truth_gate_issues.length > 0) {
+          box.classList.remove('hidden');
+          issuesContainer.innerHTML = data.truth_gate_issues.map(i => `
+            <div class="${i.severity === 'BLOCKING' ? 'text-rose-400 font-bold' : 'text-amber-400'}">
+              • [${i.severity}] ${i.message}
+            </div>
+          `).join('');
+        } else {
+          box.classList.add('hidden');
+        }
+
+      } catch (err) {
+        console.error("Erreur de connexion API:", err);
+      }
+    }
+
+    calculate();
+  </script>
+</body>
+</html>
