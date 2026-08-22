@@ -1,3 +1,4 @@
+from typing import List
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -15,7 +16,7 @@ class WalletSummary(BaseModel):
     total_pending: float
     cash_flow: float
     next_priority: str
-    projects: list[WalletProject]
+    projects: List[WalletProject]
 
 @router.get("/", response_model=WalletSummary)
 async def get_wallet_summary():
