@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
-# Importation des routeurs isolés dans app/routers/
+# Importation de tous les routeurs
 from app.routers import auth, dashboard, devis, projets, truthgate, wallet
 
 app = FastAPI(
@@ -12,7 +12,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configuration CORS sécurisée
+# Configuration CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -20,14 +20,14 @@ app.add_middleware(
         "https://cdpn.io",
         "https://codepen.io",
         "http://localhost:3000",
-        "*"  # Permet les tests pendant la phase de développement
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- INCLUSION DES ROUTEURS DE L'APPLICATION ---
+# --- INCLUSION DE TOUS LES ROUTEURS ---
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(devis.router, prefix="/api/v1")
@@ -63,7 +63,7 @@ def health_check():
     return {"status": "healthy"}
 
 
-# --- ROUTES DIRECTES (Maintien de la compatibilité) ---
+# --- ROUTES DIRECTES ---
 @app.get("/api/v1/dashboard/summary", tags=["Dashboard & Marges"])
 def get_dashboard_summary():
     return {
