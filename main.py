@@ -31,7 +31,8 @@ app.add_middleware(
 
 # Enregistrement des routeurs
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentification"])
-app.include_router(projets.router, tags=["Projets"])
+app.include_router(projets.router, prefix="/api/v1/projets", tags=["Projets"])
+
 app.include_router(devis.router, prefix="/api/v1/devis", tags=["Devis"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(wallet.router, prefix="/api/v1/wallet", tags=["Wallet"])
