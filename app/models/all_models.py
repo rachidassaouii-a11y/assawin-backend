@@ -73,3 +73,4 @@ class Avancement(Base):
     projet_id = Column(String(36), ForeignKey("projets.id"))
     
     projet = relationship("Projet", back_populates="avancements")
+
