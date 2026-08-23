@@ -2,12 +2,12 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Imports des routeurs de l'application
+# Imports des routeurs
 from app.routers import auth, projets, devis, dashboard, wallet
 from app.core.database import engine
 from app.models import all_models
 
-# Création automatique des tables si elles n'existent pas encore
+# Création automatique des tables
 all_models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -18,10 +18,8 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configuration CORS pour autoriser le frontend (GitHub Pages & Mobile)
-origins = [
-    "*",  # Autorise tous les domaines en phase de dev/test
-]
+# Configuration CORS
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Inclusion des routeurs API avec le préfixe unifié /api/v1
+# Enregistrement des routeurs
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentification"])
 app.include_router(projets.router, tags=["Projets"])
 app.include_router(devis.router, prefix="/api/v1/devis", tags=["Devis"])
@@ -49,3 +47,4 @@ async def root():
 @app.get("/health", tags=["Système"])
 async def health_check():
     return {"status": "ok"}
+
