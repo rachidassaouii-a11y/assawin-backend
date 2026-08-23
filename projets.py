@@ -98,3 +98,37 @@ async def get_project_cockpit(
         "decisions": [],
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
+
+
+    devis_list = db.query(Devis).filter(Devis.projet_id == projet.id).all()
+    
+    budget = float(projet.budget_initial_ht or 0.0)
+    debourse = sum(float(getattr(d, 'cout_total', 0.0) or 0.0) for d in devis_list) if devis_list else 0.0
+    vente = sum(float(getattr(d, 'total_ht', 0.0) or 0.0) for d in devis_list) if devis_list else 0.0
+    
+    marge = vente - debourse
+    marge_pct = (marge / vente * 100) if vente > 0 else 0.0
+
+    return {
+        "project": {
+            "id": str(projet.id),
+            "name": projet.nom_projet,
+            "nom": projet.nom_projet
+        },
+        "financials": {
+            "budget": budget,
+            "debourse": debourse,
+            "vente": vente,
+            "marge": marge,
+            "marge_pct": round(marge_pct, 2)
+        },
+        "risk": {
+            "exposition": 0.0
+        },
+        "progress": {
+            "pourcentage": 0.0
+        },
+        "alerts": [],
+        "decisions": [],
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
