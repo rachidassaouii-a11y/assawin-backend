@@ -1,241 +1,51 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List
 
-# Import du routeur Cockpit (créé dans projets.py)
-from projets import router as projets_router
+# Imports des routeurs de l'application
+from app.routers import auth, projets, devis, dashboard, wallet
+from app.core.database import engine
+from app.models import all_models
+
+# Création automatique des tables si elles n'existent pas encore
+all_models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="Assawin Backend API",
-    description="API Backend pour l'écosystème Assawin BTP",
-    version="1.0.0"
+    title="ASSAWIN™ BTP API",
+    description="Backend SaaS & Mobile ASSAWIN - Management, Marge & Risque BTP",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
-# Inclusion du routeur Cockpit
-app.include_router(projets_router)
+# Configuration CORS pour autoriser le frontend (GitHub Pages & Mobile)
+origins = [
+    "*",  # Autorise tous les domaines en phase de dev/test
+]
 
-# Configuration CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- MODÈLES DEVIS & TRUTH GATE ---
-class LigneDevis(BaseModel):
-    designation: str
-    unite: str
-    quantite: float
-    prix_unitaire_ht: float
-    debourse_sec_unitaire: float
-    taux_tva: float = 20.0
+# Inclusion des routeurs API avec le préfixe unifié /api/v1
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentification"])
+app.include_router(projets.router, tags=["Projets"])
+app.include_router(devis.router, prefix="/api/v1/devis", tags=["Devis"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
+app.include_router(wallet.router, prefix="/api/v1/wallet", tags=["Wallet"])
 
-class LotDevis(BaseModel):
-    nom_lot: str
-    lignes: List[LigneDevis]
-
-class DevisCalculateRequest(BaseModel):
-    titre: str
-    acompte_pct: float = 30.0
-    lots: List[LotDevis]
-
-class IssueTruthGate(BaseModel):
-    code: str
-    severity: str
-    message: str
-
-class DevisCalculatedResponse(BaseModel):
-    total_ht: float
-    total_tva: float
-    total_ttc: float
-    acompte_montant: float
-    debourse_sec_total: float
-    marge_brute_eur: float
-    taux_marge_pct: float
-    can_send: bool
-    truth_gate_issues: List[IssueTruthGate]
-
-# --- ROUTES SYSTÈME & DASHBOARD ---
 @app.get("/", tags=["Système"])
-def read_root():
-    return {"status": "ok", "message": "Assawin API Running"}
-
-@app.get("/health", tags=["Système"])
-def health_check():
-    return {"status": "healthy"}
-
-@app.get("/api/v1/dashboard/summary", tags=["Dashboard & Marges"])
-def get_dashboard_summary():
+async def root():
     return {
-        "nombre_devis": 5,
-        "chantiers_en_cours": 2,
-        "chiffre_affaires_signe": 28500.0
+        "status": "online",
+        "app": "ASSAWIN API",
+        "version": "1.0.0"
     }
 
-# --- CALCULATEUR DEVIS & TRUTH GATE REALTIME ---
-@app.post("/api/v1/devis/calculate", response_model=DevisCalculatedResponse, tags=["Devis"])
-def calculate_and_validate_devis(payload: DevisCalculateRequest):
-    total_ht = 0.0
-    total_tva = 0.0
-    debourse_sec_total = 0.0
-    issues: List[IssueTruthGate] = []
-
-    if payload.acompte_pct <= 0:
-        issues.append(IssueTruthGate(
-            code="NO_DOWN_PAYMENT",
-            severity="WARNING",
-            message="Aucun acompte renseigné (30% recommandé par défaut)."
-        ))
-
-    for lot in payload.lots:
-        for ligne in lot.lignes:
-            ht_ligne = ligne.quantite * ligne.prix_unitaire_ht
-            debourse_ligne = ligne.quantite * ligne.debourse_sec_unitaire
-            
-            total_ht += ht_ligne
-            total_tva += ht_ligne * (ligne.taux_tva / 100.0)
-            debourse_sec_total += debourse_ligne
-
-            if ligne.quantite > 0 and ligne.prix_unitaire_ht == 0:
-                issues.append(IssueTruthGate(
-                    code="ZERO_PRICE_LINE",
-                    severity="BLOCKING",
-                    message=f"La ligne '{ligne.designation}' a une quantité sans prix unitaire HT."
-                ))
-
-    total_ttc = total_ht + total_tva
-    acompte_montant = total_ttc * (payload.acompte_pct / 100.0)
-    
-    marge_brute_eur = total_ht - debourse_sec_total
-    taux_marge_pct = (marge_brute_eur / total_ht * 100.0) if total_ht > 0 else 0.0
-
-    if total_ht > 0 and taux_marge_pct < 20.0:
-        issues.append(IssueTruthGate(
-            code="CRITICAL_LOW_MARGIN",
-            severity="BLOCKING",
-            message=f"Marge brute de {taux_marge_pct:.1f}% inférieure au seuil critique de 20%."
-        ))
-    elif 20.0 <= taux_marge_pct < 30.0:
-        issues.append(IssueTruthGate(
-            code="WARNING_LOW_MARGIN",
-            severity="WARNING",
-            message=f"Marge brute à {taux_marge_pct:.1f}%. Objectif recommandé : >= 30%."
-        ))
-
-    has_blocking = any(issue.severity == "BLOCKING" for issue in issues)
-
-    return DevisCalculatedResponse(
-        total_ht=round(total_ht, 2),
-        total_tva=round(total_tva, 2),
-        total_ttc=round(total_ttc, 2),
-        acompte_montant=round(acompte_montant, 2),
-        debourse_sec_total=round(debourse_sec_total, 2),
-        marge_brute_eur=round(marge_brute_eur, 2),
-        taux_marge_pct=round(taux_marge_pct, 1),
-        can_send=not has_blocking,
-        truth_gate_issues=issues
-    )
-class DevisCalculateRequest(BaseModel):
-    titre: str
-    acompte_pct: float = 30.0
-    lots: List[LotDevis]
-
-class IssueTruthGate(BaseModel):
-    code: str
-    severity: str
-    message: str
-
-class DevisCalculatedResponse(BaseModel):
-    total_ht: float
-    total_tva: float
-    total_ttc: float
-    acompte_montant: float
-    debourse_sec_total: float
-    marge_brute_eur: float
-    taux_marge_pct: float
-    can_send: bool
-    truth_gate_issues: List[IssueTruthGate]
-
-# --- ROUTES SYSTÈME & DASHBOARD ---
-@app.get("/", tags=["Système"])
-def read_root():
-    return {"status": "ok", "message": "Assawin API Running"}
-
 @app.get("/health", tags=["Système"])
-def health_check():
-    return {"status": "healthy"}
-
-@app.get("/api/v1/dashboard/summary", tags=["Dashboard & Marges"])
-def get_dashboard_summary():
-    return {
-        "nombre_devis": 5,
-        "chantiers_en_cours": 2,
-        "chiffre_affaires_signe": 28500.0
-    }
-
-# --- CALCULATEUR DEVIS & TRUTH GATE REALTIME ---
-@app.post("/api/v1/devis/calculate", response_model=DevisCalculatedResponse, tags=["Devis"])
-def calculate_and_validate_devis(payload: DevisCalculateRequest):
-    total_ht = 0.0
-    total_tva = 0.0
-    debourse_sec_total = 0.0
-    issues: List[IssueTruthGate] = []
-
-    if payload.acompte_pct <= 0:
-        issues.append(IssueTruthGate(
-            code="NO_DOWN_PAYMENT",
-            severity="WARNING",
-            message="Aucun acompte renseigné (30% recommandé par défaut)."
-        ))
-
-    for lot in payload.lots:
-        for ligne in lot.lignes:
-            ht_ligne = ligne.quantite * ligne.prix_unitaire_ht
-            debourse_ligne = ligne.quantite * ligne.debourse_sec_unitaire
-            
-            total_ht += ht_ligne
-            total_tva += ht_ligne * (ligne.taux_tva / 100.0)
-            debourse_sec_total += debourse_ligne
-
-            if ligne.quantite > 0 and ligne.prix_unitaire_ht == 0:
-                issues.append(IssueTruthGate(
-                    code="ZERO_PRICE_LINE",
-                    severity="BLOCKING",
-                    message=f"La ligne '{ligne.designation}' a une quantité sans prix unitaire HT."
-                ))
-
-    total_ttc = total_ht + total_tva
-    acompte_montant = total_ttc * (payload.acompte_pct / 100.0)
-    
-    marge_brute_eur = total_ht - debourse_sec_total
-    taux_marge_pct = (marge_brute_eur / total_ht * 100.0) if total_ht > 0 else 0.0
-
-    if total_ht > 0 and taux_marge_pct < 20.0:
-        issues.append(IssueTruthGate(
-            code="CRITICAL_LOW_MARGIN",
-            severity="BLOCKING",
-            message=f"Marge brute de {taux_marge_pct:.1f}% inférieure au seuil critique de 20%."
-        ))
-    elif 20.0 <= taux_marge_pct < 30.0:
-        issues.append(IssueTruthGate(
-            code="WARNING_LOW_MARGIN",
-            severity="WARNING",
-            message=f"Marge brute à {taux_marge_pct:.1f}%. Objectif recommandé : >= 30%."
-        ))
-
-    has_blocking = any(issue.severity == "BLOCKING" for issue in issues)
-
-    return DevisCalculatedResponse(
-        total_ht=round(total_ht, 2),
-        total_tva=round(total_tva, 2),
-        total_ttc=round(total_ttc, 2),
-        acompte_montant=round(acompte_montant, 2),
-        debourse_sec_total=round(debourse_sec_total, 2),
-        marge_brute_eur=round(marge_brute_eur, 2),
-        taux_marge_pct=round(taux_marge_pct, 1),
-        can_send=not has_blocking,
-        truth_gate_issues=issues
-    )
+async def health_check():
+    return {"status": "ok"}
