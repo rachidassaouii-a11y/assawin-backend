@@ -23,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Enregistrement avec les bons préfixes
+# Configuration explicite du préfixe /api/v1/projets
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentification"])
 app.include_router(projets.router, prefix="/api/v1/projets", tags=["Projets"])
 app.include_router(devis.router, prefix="/api/v1/devis", tags=["Devis"])
@@ -37,5 +37,3 @@ async def root():
 @app.get("/health", tags=["Système"])
 async def health_check():
     return {"status": "ok"}
-
-
