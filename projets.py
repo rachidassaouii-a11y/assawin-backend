@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -63,5 +64,5 @@ async def get_project_cockpit(
         },
         "alerts": [],
         "decisions": [],
-        "updated_at": datetime.now(timezone.utc).isoformat()  # Pense à importer datetime et timezone en haut si nécessaire
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }
