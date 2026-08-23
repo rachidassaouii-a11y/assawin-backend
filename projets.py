@@ -1,22 +1,18 @@
-    from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timezone
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-# Assure-toi que ta connexion DB est importée depuis ton main.py ou database.py
-# Si tu n'as pas encore de connexion, tu peux utiliser cette fonction temporaire
-# qui sera à remplacer par ta vraie session SQLAlchemy.
-try:
-    from main import get_db
-except ImportError:
-    def get_db():
-        raise HTTPException(status_code=500, detail="get_db non configuré")
+# Imports de ta structure existante
+from app.core.database import get_db
+# Remplacer ces imports par tes modèles réels
+from app.models.all_models import Projet, Devis, Alerte, Decision, Avancement
+from app.core.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/projets", tags=["Cockpit"])
 
-# --- Schémas Pydantic (Contrat strict) ---
+# --- Schémas Pydantic (Contrat strict inchangé) ---
 class ProjectInfo(BaseModel):
     id: str
     nom: str
@@ -53,78 +49,47 @@ class CockpitResponse(BaseModel):
     decisions: List[DecisionInfo]
     updated_at: str
 
-# --- Routeur principal (Connecté à la vraie base de données) ---
+
+# --- Routeur principal (Sécurisé et connecté aux vrais modèles) ---
 @router.get("/{projet_id}/cockpit", response_model=CockpitResponse)
-async def get_projet_cockpit(projet_id: str, db: Session = Depends(get_db)):
+async def get_projet_cockpit(
+    projet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)  # SÉCURITÉ : Empêche l'accès sans token
+):
     """
-    Endpoint qui lit les données depuis les tables réelles.
-    Remplace les MOCK par de vraies requêtes SQL.
+    Lecture des données via l'ORM.
+    Vérifie que le projet appartient bien à l'utilisateur connecté.
     """
-    # 1. Récupération du projet (adapter les noms de colonnes si besoin)
-    projet = db.execute(
-        text("SELECT id_projet, nom_projet, budget_initial_ht FROM projets WHERE id_projet = :id"), 
-        {"id": projet_id}
-    ).mappings().first()
+
+    # 1. Récupération du projet en s'assurant qu'il appartient à l'utilisateur
+    projet = db.query(Projet).filter(
+        Projet.id == projet_id,
+        Projet.user_id == current_user.id  # Vérification d'appartenance
+    ).first()
     
     if not projet:
         raise HTTPException(status_code=404, detail="Projet non trouvé")
 
-    # 2. Agrégation des données financières depuis la table devis
-    fin_data = db.execute(
-        text("""
-            SELECT 
-                COALESCE(SUM(budget_initial_ht), 0) as budget,
-                COALESCE(SUM(cout_total), 0) as debourse,
-                COALESCE(SUM(total_ht), 0) as vente
-            FROM devis 
-            WHERE id_projet = :id
-        """), {"id": projet_id}
-    ).mappings().first()
-
-    budget = fin_data["budget"]
-    debourse = fin_data["debourse"]
-    vente = fin_data["vente"]
+    # 2. Agrégation des données financières via l'ORM (pas de SQL brut)
+    # (Adapte les noms d'attributs selon ton modèle Devis)
+    devis = db.query(Devis).filter(Devis.projet_id == projet.id).all()
+    
+    budget = sum(d.budget_initial_ht for d in devis)
+    debourse = sum(d.cout_total for d in devis)
+    vente = sum(d.total_ht for d in devis)
     marge = vente - debourse
     marge_pct = (marge / vente * 100) if vente > 0 else 0.0
 
-    # 3. Récupération des alertes (si la table existe)
-    alertes = []
-    try:
-        alertes_data = db.execute(
-            text("SELECT id, niveau, message FROM alertes WHERE id_projet = :id"), 
-            {"id": projet_id}
-        ).mappings().all()
-        alertes = [AlertInfo(**alert) for alert in alertes_data]
-    except Exception:
-        # Si la table n'existe pas encore, on laisse la liste vide
-        pass
-
-    # 4. Récupération des décisions (si la table existe)
-    decisions = []
-    try:
-        decisions_data = db.execute(
-            text("SELECT id, date, action FROM decisions WHERE id_projet = :id"), 
-            {"id": projet_id}
-        ).mappings().all()
-        decisions = [DecisionInfo(**decision) for decision in decisions_data]
-    except Exception:
-        # Si la table n'existe pas encore, on laisse la liste vide
-        pass
-
-    # 5. Avancement (si la table existe)
-    avancement = 0.0
-    try:
-        avancement_data = db.execute(
-            text("SELECT pourcentage FROM avancement WHERE id_projet = :id"), 
-            {"id": projet_id}
-        ).mappings().first()
-        if avancement_data:
-            avancement = avancement_data["pourcentage"]
-    except Exception:
-        pass
+    # 3. Alertes et Décisions
+    alertes = db.query(Alerte).filter(Alerte.projet_id == projet.id).all()
+    decisions = db.query(Decision).filter(Decision.projet_id == projet.id).all()
+    
+    # 4. Avancement
+    avancement = db.query(Avancement).filter(Avancement.projet_id == projet.id).first()
 
     return CockpitResponse(
-        projet=ProjectInfo(id=projet["id_projet"], nom=projet["nom_projet"]),
+        projet=ProjectInfo(id=projet.id, nom=projet.nom),
         financials=Financials(
             budget=budget,
             debourse=debourse,
@@ -132,9 +97,9 @@ async def get_projet_cockpit(projet_id: str, db: Session = Depends(get_db)):
             marge=marge,
             marge_pct=round(marge_pct, 2)
         ),
-        risque=RiskInfo(exposition=0.0),  # À brancher sur ton Risk Engine plus tard
-        avancement=ProgressInfo(pourcentage=avancement),
-        alertes=alertes,
-        decisions=decisions,
+        risque=RiskInfo(exposition=0.0), # À brancher sur ton Risk Engine
+        avancement=ProgressInfo(pourcentage=avancement.pourcentage if avancement else 0.0),
+        alertes=[AlertInfo(id=a.id, niveau=a.niveau, message=a.message) for a in alertes],
+        decisions=[DecisionInfo(id=d.id, date=d.date.isoformat(), action=d.action) for d in decisions],
         updated_at=datetime.now(timezone.utc).isoformat()
     )
