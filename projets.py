@@ -12,7 +12,7 @@ from app.models.all_models import Projet, Devis, User
 router = APIRouter(prefix="/api/v1/projets", tags=["Projets"])
 
 # --- Schémas Pydantic ---
-class ProjetCreate(BaseModel):
+router = APIRouter(tags=["Projets"])
     nom: str
     budget_initial_ht: float = 0.0
 
