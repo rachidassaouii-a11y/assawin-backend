@@ -10,6 +10,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# --- INCLUSION DU ROUTEUR COCKPIT PROJET (AJOUTÉ) ---
+app.include_router(projets_router)
+
 # Configuration CORS
 app.add_middleware(
     CORSMiddleware,
