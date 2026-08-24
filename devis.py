@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
-from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -11,7 +12,7 @@ from app.models.all_models import Devis, Projet, User
 
 router = APIRouter(prefix="/api/v1/devis", tags=["Devis & Calculs"])
 
-# ===== SCHÉMAS PYDANTIC =====
+TRUTH_GATE_MIN_TAUX_MARQUE = 20.0
 
 class LigneDevisCreate(BaseModel):
     designation: str = Field(..., min_length=1)
@@ -28,7 +29,7 @@ class LotDevisCreate(BaseModel):
 class DevisCalculateRequest(BaseModel):
     titre: str = Field(..., min_length=1)
     acompte_pct: float = Field(30.0, ge=0, le=100)
-    lots: List[LotDevisCreate]
+    lots: List[LotDevisCreate] = Field(..., min_length=1)
     id_projet: Optional[str] = None
     marge_cible_pct: float = Field(30.0, ge=0, le=100)
     fournisseur_non_verifie: bool = False
@@ -43,9 +44,13 @@ class DevisResponse(BaseModel):
     taux_marque_pct: float
     acompte_montant: float
     warnings: List[str]
+    can_send: bool
 
-
-# ===== MOTEUR DE CALCUL CENTRAL =====
+class DevisPersistedResponse(DevisResponse):
+    id_devis: str
+    id_projet: str
+    statut: str
+    reference: str
 
 def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> dict:
     total_ht = 0.0
@@ -57,7 +62,6 @@ def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> di
             ligne_ht = ligne.quantite * ligne.prix_unitaire_ht
             ligne_cout = ligne.quantite * ligne.debourse_sec_unitaire
             ligne_tva = ligne_ht * (ligne.taux_tva / 100.0)
-
             total_ht += ligne_ht
             cout_total += ligne_cout
             total_tva += ligne_tva
@@ -66,10 +70,16 @@ def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> di
     cout_total = round(cout_total, 2)
     total_tva = round(total_tva, 2)
     total_ttc = round(total_ht + total_tva, 2)
-
     marge_brute_eur = round(total_ht - cout_total, 2)
-    taux_rendement_cout_pct = round((marge_brute_eur / cout_total) * 100, 2) if cout_total > 0 else 0.0
-    taux_marque_pct = round((marge_brute_eur / total_ht) * 100, 2) if total_ht > 0 else 0.0
+
+    taux_rendement_cout_pct = round(
+        (marge_brute_eur / cout_total) * 100, 2
+    ) if cout_total > 0 else 0.0
+
+    taux_marque_pct = round(
+        (marge_brute_eur / total_ht) * 100, 2
+    ) if total_ht > 0 else 0.0
+
     acompte_montant = round(total_ttc * (acompte_pct / 100.0), 2)
 
     return {
@@ -83,8 +93,27 @@ def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> di
         "acompte_montant": acompte_montant,
     }
 
+def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
+    warnings = []
 
-# ===== ENDPOINTS =====
+    if fournisseur_non_verifie:
+        warnings.append("Fournisseur non vérifié")
+
+    if calculs["total_ht"] <= 0:
+        warnings.append("Le total HT doit être supérieur à zéro")
+
+    if calculs["taux_marque_pct"] < TRUTH_GATE_MIN_TAUX_MARQUE:
+        warnings.append(
+            f"Taux de marque faible : {calculs['taux_marque_pct']}% "
+            f"(seuil minimum : {TRUTH_GATE_MIN_TAUX_MARQUE}%)"
+        )
+
+    can_send = (
+        calculs["total_ht"] > 0
+        and calculs["taux_marque_pct"] >= TRUTH_GATE_MIN_TAUX_MARQUE
+    )
+
+    return {"warnings": warnings, "can_send": can_send}
 
 @router.post("/calculate", response_model=DevisResponse)
 def calculate_devis(
@@ -92,51 +121,57 @@ def calculate_devis(
     current_user: User = Depends(get_current_user)
 ):
     calculs = _calculer_totaux_devis(data.lots, data.acompte_pct)
-    
-    warnings = []
-    if data.fournisseur_non_verifie:
-        warnings.append("Fournisseur non vérifié")
-    if calculs["taux_marque_pct"] < 20.0:
-        warnings.append(f"Taux de marque faible : {calculs['taux_marque_pct']}% (Seuil recommandé: 20%)")
+    truth_gate = _evaluer_truth_gate(calculs, data.fournisseur_non_verifie)
+    return {**calculs, **truth_gate}
 
-    return {
-        **calculs,
-        "warnings": warnings
-    }
-
-
-@router.post("/", status_code=201)
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=DevisPersistedResponse)
 def create_and_persist_devis(
     data: DevisCalculateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     if not data.id_projet:
-        raise HTTPException(status_code=400, detail="id_projet obligatoire pour persister un devis")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="id_projet obligatoire pour persister un devis"
+        )
 
     try:
-        proj_uuid = uuid.UUID(data.id_projet)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Format id_projet UUID invalide")
+        uuid.UUID(data.id_projet)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format id_projet UUID invalide"
+        )
 
-    projet = db.query(Projet).filter(
-        Projet.id_projet == proj_uuid,
-        Projet.id_user == current_user.id_user
-    ).first()
+    projet = (
+        db.query(Projet)
+        .filter(
+            Projet.id_projet == data.id_projet,
+            Projet.id_user == str(current_user.id_user)
+        )
+        .first()
+    )
+
     if not projet:
-        raise HTTPException(status_code=404, detail="Projet introuvable ou non autorisé")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Projet introuvable ou non autorisé"
+        )
 
     calculs = _calculer_totaux_devis(data.lots, data.acompte_pct)
+    truth_gate = _evaluer_truth_gate(calculs, data.fournisseur_non_verifie)
 
     nouveau_devis = Devis(
-        id_devis=uuid.uuid4(),
-        id_projet=projet.id_projet,
-        reference=data.titre,
+        id_devis=str(uuid.uuid4()),
+        id_projet=str(projet.id_projet),
+        reference=data.titre.strip(),
         total_ht=calculs["total_ht"],
         cout_total=calculs["cout_total"],
         marge_cible_pct=data.marge_cible_pct,
         fournisseur_non_verifie=data.fournisseur_non_verifie,
-        date_creation=datetime.now(timezone.utc)
+        statut="BROUILLON",
+        date_creation=datetime.now(timezone.utc),
     )
 
     db.add(nouveau_devis)
@@ -145,7 +180,9 @@ def create_and_persist_devis(
 
     return {
         "id_devis": str(nouveau_devis.id_devis),
+        "id_projet": str(nouveau_devis.id_projet),
+        "statut": nouveau_devis.statut,
         "reference": nouveau_devis.reference,
         **calculs,
-        "warnings": ["Fournisseur non vérifié"] if nouveau_devis.fournisseur_non_verifie else []
+        **truth_gate,
     }
