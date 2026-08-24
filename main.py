@@ -1,42 +1,33 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import engine, Base
-from app.models import all_models  # Import défensif déclenchant l'enregistrement des tables
-
-# Import des routeurs à la racine
-import auth
-import projets
-import devis
-import dashboard
-import wallet
-import next_best_action
-
-# Création automatique de la structure de tables PostgreSQL/SQLite
-Base.metadata.create_all(bind=engine)
+# Import des routeurs depuis la racine
+from projets import router as projets_router
+from devis import router as devis_router
 
 app = FastAPI(
-    title="ASSAWIN BTP API",
+    title="ASSAWIN BTP Backend API",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
+    description="Noyau de calcul, gestion des projets, devis et vérité des marges."
 )
 
+# Configuration CORS pour autoriser l'accès front / tests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://rachidassaouii-a11y.github.io",
-        "http://localhost:3000",
-        "http://localhost:5173"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
-app.include_router(projets.router, prefix="/api/v1/projets", tags=["Projets / Cockpit"])
-app.include_router(devis.router, prefix="/api/v1/devis", tags=["Devis"])
-app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
-app.include_router(wallet.router, prefix="/api/v1/wallet", tags=["Wallet"])
-app.include_router(next_best_action.router, prefix="/api/v1/nba", tags=["Next Best Action"])
+# Inclusion de tous les routeurs opérationnels
+app.include_router(projets_router)
+app.include_router(devis_router)
+
+@app.get("/")
+def read_root():
+    return {"message": "API ASSAWIN BTP en ligne", "status": "active"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "assawin-backend"}
