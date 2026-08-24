@@ -63,7 +63,7 @@
       </div>
 
       <div class="bg-slate-800 p-4 rounded-lg border-l-4 border-emerald-500">
-        <p class="text-xs text-slate-400">Marge Brute / Taux</p>
+        <p class="text-xs text-slate-400">Marge Brute / Taux de Marque</p>
         <p class="text-xl font-bold"><span id="res-marge">0</span> € (<span id="res-taux">0</span>%)</p>
       </div>
 
@@ -82,12 +82,14 @@
   </div>
 
   <script>
-    const API_URL = "https://assawin-api-2026-v2.onrender.com/api/v1/devis/calculate";
+    const API_URL = "https://assawin-backend.onrender.com/api/v1/devis/calculate";
 
     async function calculate() {
       const payload = {
         titre: "Nouveau Devis",
-        acompte_pct: parseFloat(document.getElementById('acompte').value) || 0,
+        acompte_pct: parseFloat(document.getElementById('acompte').value) || 30.0,
+        marge_cible_pct: 30.0,
+        fournisseur_non_verifie: false,
         lots: [{
           nom_lot: document.getElementById('nom-lot').value,
           lignes: [{
@@ -109,10 +111,11 @@
         });
         const data = await res.json();
 
+        // Liaison exacte avec les retours du backend de devis.py
         document.getElementById('res-ht').innerText = data.total_ht;
-        document.getElementById('res-deb').innerText = data.debourse_sec_total;
+        document.getElementById('res-deb').innerText = data.cout_total;
         document.getElementById('res-marge').innerText = data.marge_brute_eur;
-        document.getElementById('res-taux').innerText = data.taux_marge_pct;
+        document.getElementById('res-taux').innerText = data.taux_marque_pct;
         document.getElementById('res-ttc').innerText = data.total_ttc;
         document.getElementById('res-acompte').innerText = data.acompte_montant;
 
@@ -120,22 +123,18 @@
         const box = document.getElementById('truthgate-box');
         const issuesContainer = document.getElementById('truthgate-issues');
 
-        if (data.can_send) {
-          badge.className = "px-3 py-1 rounded text-xs font-bold bg-emerald-900 text-emerald-300 border border-emerald-500";
-          badge.innerText = "TRUTH GATE : VALIDE (ENVOI AUTORISÉ)";
-        } else {
-          badge.className = "px-3 py-1 rounded text-xs font-bold bg-rose-900 text-rose-300 border border-rose-500";
-          badge.innerText = "TRUTH GATE : BLOQUÉ";
-        }
-
-        if (data.truth_gate_issues && data.truth_gate_issues.length > 0) {
+        // Gestion du Truth Gate via le tableau warnings du backend
+        if (data.warnings && data.warnings.length > 0) {
+          badge.className = "px-3 py-1 rounded text-xs font-bold bg-amber-900 text-amber-300 border border-amber-500";
+          badge.innerText = "TRUTH GATE : AVERTISSEMENT";
+          
           box.classList.remove('hidden');
-          issuesContainer.innerHTML = data.truth_gate_issues.map(i => `
-            <div class="${i.severity === 'BLOCKING' ? 'text-rose-400 font-bold' : 'text-amber-400'}">
-              • [${i.severity}] ${i.message}
-            </div>
+          issuesContainer.innerHTML = data.warnings.map(w => `
+            <div class="text-amber-400 font-bold">• ${w}</div>
           `).join('');
         } else {
+          badge.className = "px-3 py-1 rounded text-xs font-bold bg-emerald-900 text-emerald-300 border border-emerald-500";
+          badge.innerText = "TRUTH GATE : VALIDE";
           box.classList.add('hidden');
         }
 
