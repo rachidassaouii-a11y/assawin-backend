@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey
+
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -16,9 +17,25 @@ class User(Base):
 class Projet(Base):
     __tablename__ = "projets"
     id_projet = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_user = Column(String, ForeignKey("users.id_user"), nullable=False)
+    id_user = Column(String, ForeignKey("users.id_user"), nullable=False, index=True)
     nom_projet = Column(String, nullable=False)
-    statut = Column(String, default="EN_COURS")
+    budget_initial_ht = Column(Float, default=0.0, nullable=False)
+    marge_cible_pct = Column(Float, default=30.0, nullable=False)
+    statut = Column(String, default="EN_COURS", nullable=False)
+    description = Column(String, nullable=True)
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class Devis(Base):
+    __tablename__ = "devis"
+    id_devis = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_projet = Column(String, ForeignKey("projets.id_projet"), nullable=False, index=True)
+    reference = Column(String, nullable=False)
+    total_ht = Column(Float, default=0.0, nullable=False)
+    cout_total = Column(Float, default=0.0, nullable=False)
+    marge_cible_pct = Column(Float, default=30.0, nullable=False)
+    fournisseur_non_verifie = Column(Boolean, default=False, nullable=False)
+    statut = Column(String, default="BROUILLON", nullable=False)
+    date_creation = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class ChiffrageInverse(Base):
     __tablename__ = "chiffrage_inverse"
