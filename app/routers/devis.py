@@ -9,16 +9,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.all_models import Devis, Projet, User
 
-
-router = APIRouter(
-    prefix="/api/v1/devis",
-    tags=["Devis & Calculs"]
-)
-
-
-# ============================================================
-# SCHÉMAS PYDANTIC
-# ============================================================
+router = APIRouter(prefix="/api/v1/devis", tags=["Devis & Calculs"])
 
 class LigneDevisCreate(BaseModel):
     designation: str = Field(..., min_length=1)
@@ -28,27 +19,17 @@ class LigneDevisCreate(BaseModel):
     debourse_sec_unitaire: float = Field(..., ge=0)
     taux_tva: float = Field(20.0, ge=0)
 
-
 class LotDevisCreate(BaseModel):
     nom_lot: str = Field(..., min_length=1)
     lignes: List[LigneDevisCreate]
-
 
 class DevisCalculateRequest(BaseModel):
     titre: str = Field(..., min_length=1)
     acompte_pct: float = Field(30.0, ge=0, le=100)
     lots: List[LotDevisCreate]
-
     id_projet: Optional[str] = None
-
-    marge_cible_pct: float = Field(
-        30.0,
-        ge=0,
-        le=100
-    )
-
+    marge_cible_pct: float = Field(30.0, ge=0, le=100)
     fournisseur_non_verifie: bool = False
-
 
 class DevisResponse(BaseModel):
     total_ht: float
@@ -56,44 +37,21 @@ class DevisResponse(BaseModel):
     total_tva: float
     total_ttc: float
     marge_brute_eur: float
-
     taux_rendement_cout_pct: float
     taux_marque_pct: float
-
     acompte_montant: float
     warnings: List[str]
 
-
-# ============================================================
-# MOTEUR CENTRAL DE CALCUL
-# ============================================================
-
-def _calculer_totaux_devis(
-    lots: List[LotDevisCreate],
-    acompte_pct: float
-) -> dict:
-
+def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> dict:
     total_ht = 0.0
     cout_total = 0.0
     total_tva = 0.0
 
     for lot in lots:
         for ligne in lot.lignes:
-
-            ligne_ht = (
-                ligne.quantite
-                * ligne.prix_unitaire_ht
-            )
-
-            ligne_cout = (
-                ligne.quantite
-                * ligne.debourse_sec_unitaire
-            )
-
-            ligne_tva = (
-                ligne_ht
-                * (ligne.taux_tva / 100.0)
-            )
+            ligne_ht = ligne.quantite * ligne.prix_unitaire_ht
+            ligne_cout = ligne.quantite * ligne.debourse_sec_unitaire
+            ligne_tva = ligne_ht * (ligne.taux_tva / 100.0)
 
             total_ht += ligne_ht
             cout_total += ligne_cout
@@ -102,43 +60,12 @@ def _calculer_totaux_devis(
     total_ht = round(total_ht, 2)
     cout_total = round(cout_total, 2)
     total_tva = round(total_tva, 2)
+    total_ttc = round(total_ht + total_tva, 2)
 
-    total_ttc = round(
-        total_ht + total_tva,
-        2
-    )
-
-    marge_brute_eur = round(
-        total_ht - cout_total,
-        2
-    )
-
-    # Rendement sur coût :
-    # marge / coût
-    taux_rendement_cout_pct = (
-        round(
-            (marge_brute_eur / cout_total) * 100,
-            2
-        )
-        if cout_total > 0
-        else 0.0
-    )
-
-    # Taux de marque :
-    # marge / prix de vente HT
-    taux_marque_pct = (
-        round(
-            (marge_brute_eur / total_ht) * 100,
-            2
-        )
-        if total_ht > 0
-        else 0.0
-    )
-
-    acompte_montant = round(
-        total_ttc * (acompte_pct / 100.0),
-        2
-    )
+    marge_brute_eur = round(total_ht - cout_total, 2)
+    taux_rendement_cout_pct = round((marge_brute_eur / cout_total) * 100, 2) if cout_total > 0 else 0.0
+    taux_marque_pct = round((marge_brute_eur / total_ht) * 100, 2) if total_ht > 0 else 0.0
+    acompte_montant = round(total_ttc * (acompte_pct / 100.0), 2)
 
     return {
         "total_ht": total_ht,
@@ -151,145 +78,46 @@ def _calculer_totaux_devis(
         "acompte_montant": acompte_montant,
     }
 
-
-# ============================================================
-# CALCUL À LA VOLÉE
-# ============================================================
-
-@router.post(
-    "/calculate",
-    response_model=DevisResponse
-)
+@router.post("/calculate", response_model=DevisResponse)
 def calculate_devis(
-    data: DevisCalculateRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Calcule un devis sans persistance.
-    Utilisé pour la simulation temps réel.
-    """
-
-    calculs = _calculer_totaux_devis(
-        data.lots,
-        data.acompte_pct
-    )
-
-    warnings: List[str] = []
-
-    if data.fournisseur_non_verifie:
-        warnings.append(
-            "Fournisseur non vérifié"
-        )
-
-    if calculs["taux_marque_pct"] < 20.0:
-        warnings.append(
-            f"Taux de marque faible : "
-            f"{calculs['taux_marque_pct']}% "
-            f"(Seuil recommandé : 20%)"
-        )
-
-    return {
-        **calculs,
-        "warnings": warnings
-    }
-
-
-# ============================================================
-# PERSISTANCE DU DEVIS
-# ============================================================
-
-@router.post(
-    "/",
-    status_code=status.HTTP_201_CREATED,
-    response_model=DevisResponse
-)
-def create_and_persist_devis(
     data: DevisCalculateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Crée et persiste un devis en base
-    relié à un projet appartenant à l'utilisateur connecté.
-    """
+    calculs = _calculer_totaux_devis(data.lots, data.acompte_pct)
 
-    if not data.id_projet:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "id_projet obligatoire "
-                "pour persister un devis"
-            )
-        )
-
-    try:
-        proj_uuid = uuid.UUID(data.id_projet)
-
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Format id_projet UUID invalide"
-        )
-
-    projet = (
-        db.query(Projet)
-        .filter(
-            Projet.id_projet == proj_uuid,
-            Projet.id_user == current_user.id_user
-        )
-        .first()
-    )
-
-    if not projet:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                "Projet introuvable "
-                "ou non autorisé"
-            )
-        )
-
-    calculs = _calculer_totaux_devis(
-        data.lots,
-        data.acompte_pct
-    )
-
-    nouveau_devis = Devis(
-        id_devis=uuid.uuid4(),
-        id_projet=projet.id_projet,
-        reference=data.titre,
-
-        total_ht=calculs["total_ht"],
-        cout_total=calculs["cout_total"],
-
-        marge_cible_pct=data.marge_cible_pct,
-
-        fournisseur_non_verifie=(
-            data.fournisseur_non_verifie
-        ),
-
-        date_creation=datetime.now(
-            timezone.utc
-        )
-    )
-
-    db.add(nouveau_devis)
-    db.commit()
-    db.refresh(nouveau_devis)
-
-    warnings: List[str] = []
-
-    if nouveau_devis.fournisseur_non_verifie:
-        warnings.append(
-            "Fournisseur non vérifié"
-        )
-
+    warnings = []
+    if data.fournisseur_non_verifie:
+        warnings.append("Fournisseur non vérifié")
     if calculs["taux_marque_pct"] < 20.0:
-        warnings.append(
-            f"Taux de marque faible : "
-            f"{calculs['taux_marque_pct']}% "
-            f"(Seuil recommandé : 20%)"
+        warnings.append(f"Taux de marque faible : {calculs['taux_marque_pct']}% (Seuil recommandé: 20%)")
+
+    # Persistance — c'est ce qui manquait dans la version précédente :
+    # sans ça, le Cockpit Projet ne voyait jamais ce devis.
+    if data.id_projet:
+        projet = (
+            db.query(Projet)
+            .filter(Projet.id_projet == data.id_projet, Projet.id_user == str(current_user.id_user))
+            .first()
         )
+        if not projet:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Projet introuvable ou non autorisé pour ce devis"
+            )
+
+        nouveau_devis = Devis(
+            id_devis=str(uuid.uuid4()),
+            id_projet=data.id_projet,
+            reference=data.titre.strip(),
+            total_ht=calculs["total_ht"],
+            cout_total=calculs["cout_total"],
+            marge_cible_pct=data.marge_cible_pct,
+            fournisseur_non_verifie=data.fournisseur_non_verifie,
+            statut="BROUILLON",
+        )
+        db.add(nouveau_devis)
+        db.commit()
 
     return {
         **calculs,
