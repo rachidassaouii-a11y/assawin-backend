@@ -1,18 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import des routeurs
+# Routeurs à la racine du projet
 from projets import router as projets_router
 from devis import router as devis_router
 from dashboard import router as dashboard_router
 
+# Routeur situé dans app/routers
+from app.routers.auth import router as auth_router
+
 
 app = FastAPI(
     title="ASSAWIN BTP Backend API",
-    version="1.1.0",
+    version="1.0.0",
     description=(
-        "Noyau de calcul, gestion des projets, devis, "
-        "dashboard et protection des marges."
+        "ASSAWIN — Noyau de calcul, gestion des projets, "
+        "devis, marges et pilotage métier."
     )
 )
 
@@ -31,16 +34,12 @@ app.add_middleware(
 
 
 # ============================================================
-# ROUTEURS API
+# ROUTEURS
 # ============================================================
 
-# Projets + Cockpit
+app.include_router(auth_router)
 app.include_router(projets_router)
-
-# Devis + moteur de calcul
 app.include_router(devis_router)
-
-# Dashboard global
 app.include_router(dashboard_router)
 
 
@@ -53,7 +52,7 @@ def read_root():
     return {
         "message": "API ASSAWIN BTP en ligne",
         "status": "active",
-        "version": "1.1.0"
+        "version": "1.0.0"
     }
 
 
