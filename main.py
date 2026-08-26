@@ -1,47 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth
+
+from app.core.database import engine
+from app.models.all_models import Base  # la VRAIE Base — celle où les modèles sont réellement enregistrés
+
+from projets import router as projets_router
+from devis import router as devis_router
+from dashboard import router as dashboard_router
+from app.routers.auth import router as auth_router
 
 app = FastAPI(
-    title="Assawin BTP API",
+    title="ASSAWIN BTP Backend API",
     version="1.0.0",
-    description="API backend pour la gestion de chantier et devis Assawin"
+    description="ASSAWIN — Noyau de calcul, gestion des projets, devis, marges et pilotage métier."
 )
-
-# Configuration CORS pour autoriser toutes les connexions (Swagger, frontend, etc.)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Enregistrement des routes d'authentification
-app.include_router(auth.router)
-
-@app.get("/")
-def read_root():
-    return {
-        "status": "online",
-        "app": "Assawin BTP Backend",
-        "docs": "/docs"
-    }
-        
-        return {
-            "access_token": encoded_jwt,
-            "token_type": "bearer"
-        }
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur interne: {str(e)}"
-        )
-
-# CORS
-# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,33 +23,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ============================================================
-# ROUTEURS
-# ============================================================
+# IMPORTANT : Base vient de app.models.all_models, PAS de app.core.database.
+# Ce sont deux objets Base différents dans le code actuel (database.py en
+# déclare une à lui, inutilisée) ; celui d'all_models.py est celui qui
+# connaît réellement User, Projet, Devis, etc. Utiliser l'autre créerait
+# silencieusement zéro table, comme on vient de le reproduire.
+Base.metadata.create_all(bind=engine)
 
 app.include_router(auth_router)
 app.include_router(projets_router)
 app.include_router(devis_router)
 app.include_router(dashboard_router)
 
-
-# ============================================================
-# ROUTES SYSTÈME
-# ============================================================
-
 @app.get("/")
 def read_root():
-    return {
-        "message": "API ASSAWIN BTP en ligne",
-        "status": "active",
-        "version": "1.0.0"
-    }
-
+    return {"message": "API ASSAWIN BTP en ligne", "status": "active", "version": "1.0.0"}
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "ok",
-        "service": "assawin-backend"
-    }
+    return {"status": "ok", "service": "assawin-backend"}
