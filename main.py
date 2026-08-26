@@ -1,68 +1,32 @@
-from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr
-from jose import jwt
-import hashlib
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.routers import auth
 
-router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
+app = FastAPI(
+    title="Assawin BTP API",
+    version="1.0.0",
+    description="API backend pour la gestion de chantier et devis Assawin"
+)
 
-SECRET_KEY = "assawin_secret_key_change_in_production"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+# Configuration CORS pour autoriser toutes les connexions (Swagger, frontend, etc.)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Base de données simulée en mémoire
-fake_users_db = {}
+# Enregistrement des routes d'authentification
+app.include_router(auth.router)
 
-class UserRegister(BaseModel):
-    nom: str
-    email: EmailStr
-    password: str
-    entreprise: str
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(user: UserRegister):
-    if user.email in fake_users_db:
-        raise HTTPException(status_code=400, detail="Email déjà enregistré")
-    
-    hashed_password = hash_password(user.password)
-    fake_users_db[user.email] = {
-        "nom": user.nom,
-        "email": user.email,
-        "password": hashed_password,
-        "entreprise": user.entreprise,
-        "created_at": datetime.utcnow().isoformat()
-    }
+@app.get("/")
+def read_root():
     return {
-        "message": "Utilisateur créé",
-        "id_user": user.email
+        "status": "online",
+        "app": "Assawin BTP Backend",
+        "docs": "/docs"
     }
-
-@router.post("/login")
-def login(user: UserLogin):
-    try:
-        db_user = fake_users_db.get(user.email)
-        if not db_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Email non enregistré. Veuillez d'abord exécuter /register."
-            )
-        
-        if db_user["password"] != hash_password(user.password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Identifiants incorrects"
-            )
-        
-        expire = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        to_encode = {"sub": user.email, "exp": datetime.utcnow() + expire}
-        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         
         return {
             "access_token": encoded_jwt,
