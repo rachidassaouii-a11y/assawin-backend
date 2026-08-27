@@ -6,7 +6,7 @@ from app.models.all_models import Base  # la VRAIE Base — celle où les modèl
 
 from projets import router as projets_router
 from devis import router as devis_router
-from dashboard import router as dashboard_router
+from app.routers.dashboard import router as dashboard_router
 from app.routers.auth import router as auth_router
 
 app = FastAPI(
