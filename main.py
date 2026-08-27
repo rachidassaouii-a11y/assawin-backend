@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.core.database import engine
 from app.models.all_models import Base  # la VRAIE Base — celle où les modèles sont réellement enregistrés
 
@@ -22,23 +21,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# IMPORTANT : Base vient de app.models.all_models, PAS de app.core.database.
-# Ce sont deux objets Base différents dans le code actuel (database.py en
-# déclare une à lui, inutilisée) ; celui d'all_models.py est celui qui
-# connaît réellement User, Projet, Devis, etc. Utiliser l'autre créerait
-# silencieusement zéro table, comme on vient de le reproduire.
-Base.metadata.create_all(bind=engine)
-
-app.include_router(auth_router)
-app.include_router(projets_router)
-app.include_router(devis_router)
-app.include_router(dashboard_router)
-
-@app.get("/")
-def read_root():
-    return {"message": "API ASSAWIN BTP en ligne", "status": "active", "version": "1.0.0"}
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "assawin-backend"}
