@@ -36,7 +36,7 @@ def get_current_user(
     except Exception:
         raise HTTPException(status_code=401, detail="Token expiré ou invalide")
 
-    user = db.query(User).filter(User.id_user == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     return user
