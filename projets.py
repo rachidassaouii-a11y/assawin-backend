@@ -55,7 +55,7 @@ def create_projet(
 ):
     nouveau_projet = Projet(
         id_projet=str(uuid.uuid4()),
-        id_user=str(current_user.id_user),
+        id_user=str(current_user.id),
         nom_projet=data.nom_projet.strip(),
         budget_initial_ht=data.budget_initial_ht,
         marge_cible_pct=data.marge_cible_pct,
