@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/v1/devis", tags=["Devis & Calculs"])
 
 TRUTH_GATE_MIN_TAUX_MARQUE = 20.0
 
+
 class LigneDevisCreate(BaseModel):
     designation: str = Field(..., min_length=1)
     unite: str = Field(..., min_length=1)
@@ -22,9 +23,11 @@ class LigneDevisCreate(BaseModel):
     debourse_sec_unitaire: float = Field(..., ge=0)
     taux_tva: float = Field(20.0, ge=0)
 
+
 class LotDevisCreate(BaseModel):
     nom_lot: str = Field(..., min_length=1)
     lignes: List[LigneDevisCreate]
+
 
 class DevisCalculateRequest(BaseModel):
     titre: str = Field(..., min_length=1)
@@ -33,6 +36,7 @@ class DevisCalculateRequest(BaseModel):
     id_projet: Optional[str] = None
     marge_cible_pct: float = Field(30.0, ge=0, le=100)
     fournisseur_non_verifie: bool = False
+
 
 class DevisResponse(BaseModel):
     total_ht: float
@@ -46,11 +50,13 @@ class DevisResponse(BaseModel):
     warnings: List[str]
     can_send: bool
 
+
 class DevisPersistedResponse(DevisResponse):
     id_devis: str
     id_projet: str
     statut: str
     reference: str
+
 
 def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> dict:
     total_ht = 0.0
@@ -93,6 +99,7 @@ def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> di
         "acompte_montant": acompte_montant,
     }
 
+
 def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
     warnings = []
 
@@ -115,6 +122,7 @@ def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
 
     return {"warnings": warnings, "can_send": can_send}
 
+
 @router.post("/calculate", response_model=DevisResponse)
 def calculate_devis(
     data: DevisCalculateRequest,
@@ -123,6 +131,7 @@ def calculate_devis(
     calculs = _calculer_totaux_devis(data.lots, data.acompte_pct)
     truth_gate = _evaluer_truth_gate(calculs, data.fournisseur_non_verifie)
     return {**calculs, **truth_gate}
+
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=DevisPersistedResponse)
 def create_and_persist_devis(
@@ -147,8 +156,8 @@ def create_and_persist_devis(
     projet = (
         db.query(Projet)
         .filter(
-            Projet.id_projet == data.id_projet,
-            Projet.id_user == str(current_user.id_user)
+            Projet.id == data.id_projet,
+            Projet.user_id == str(current_user.id)
         )
         .first()
     )
@@ -163,15 +172,11 @@ def create_and_persist_devis(
     truth_gate = _evaluer_truth_gate(calculs, data.fournisseur_non_verifie)
 
     nouveau_devis = Devis(
-        id_devis=str(uuid.uuid4()),
-        id_projet=str(projet.id_projet),
-        reference=data.titre.strip(),
+        id=str(uuid.uuid4()),
+        projet_id=str(projet.id),
         total_ht=calculs["total_ht"],
         cout_total=calculs["cout_total"],
-        marge_cible_pct=data.marge_cible_pct,
-        fournisseur_non_verifie=data.fournisseur_non_verifie,
-        statut="BROUILLON",
-        date_creation=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
     )
 
     db.add(nouveau_devis)
@@ -179,10 +184,10 @@ def create_and_persist_devis(
     db.refresh(nouveau_devis)
 
     return {
-        "id_devis": str(nouveau_devis.id_devis),
-        "id_projet": str(nouveau_devis.id_projet),
-        "statut": nouveau_devis.statut,
-        "reference": nouveau_devis.reference,
+        "id_devis": str(nouveau_devis.id),
+        "id_projet": str(nouveau_devis.projet_id),
+        "statut": "BROUILLON",
+        "reference": data.titre.strip(),
         **calculs,
         **truth_gate,
     }
