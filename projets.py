@@ -43,6 +43,17 @@ def _to_float(value) -> float:
     return float(value or 0.0)
 
 
+def _to_response(projet: Projet, marge_cible_pct: float = 30.0, statut: str = "EN_COURS", description: Optional[str] = None) -> dict:
+    return {
+        "id_projet": str(projet.id),
+        "nom_projet": projet.nom_projet,
+        "budget_initial_ht": _to_float(projet.budget_initial_ht),
+        "marge_cible_pct": marge_cible_pct,
+        "statut": statut,
+        "description": description,
+    }
+
+
 @router.post(
     "/",
     status_code=status.HTTP_201_CREATED,
@@ -54,21 +65,23 @@ def create_projet(
     current_user: User = Depends(get_current_user)
 ):
     nouveau_projet = Projet(
-        id_projet=str(uuid.uuid4()),
-        id_user=str(current_user.id),
+        id=str(uuid.uuid4()),
         nom_projet=data.nom_projet.strip(),
         budget_initial_ht=data.budget_initial_ht,
-        marge_cible_pct=data.marge_cible_pct,
-        statut=data.statut,
-        description=data.description,
-        date_creation=datetime.now(timezone.utc),
+        user_id=str(current_user.id),
+        created_at=datetime.now(timezone.utc),
     )
 
     db.add(nouveau_projet)
     db.commit()
     db.refresh(nouveau_projet)
 
-    return nouveau_projet
+    return _to_response(
+        nouveau_projet,
+        marge_cible_pct=data.marge_cible_pct,
+        statut=data.statut,
+        description=data.description,
+    )
 
 
 @router.get(
@@ -79,16 +92,13 @@ def list_projets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return (
+    projets = (
         db.query(Projet)
-        .filter(
-            Projet.id_user == str(current_user.id_user)
-        )
-        .order_by(
-            Projet.date_creation.desc()
-        )
+        .filter(Projet.user_id == str(current_user.id))
+        .order_by(Projet.created_at.desc())
         .all()
     )
+    return [_to_response(p) for p in projets]
 
 
 @router.get("/{projet_id}/cockpit")
@@ -97,7 +107,6 @@ def get_projet_cockpit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Validation du format UUID
     try:
         uuid.UUID(projet_id)
     except (ValueError, TypeError):
@@ -106,12 +115,11 @@ def get_projet_cockpit(
             detail="Format UUID projet invalide"
         )
 
-    # Vérification que le projet appartient bien à l'utilisateur connecté
     projet = (
         db.query(Projet)
         .filter(
-            Projet.id_projet == projet_id,
-            Projet.id_user == str(current_user.id_user)
+            Projet.id == projet_id,
+            Projet.user_id == str(current_user.id)
         )
         .first()
     )
@@ -122,76 +130,41 @@ def get_projet_cockpit(
             detail="Projet introuvable ou non autorisé"
         )
 
-    # Récupération des devis du projet
     devis_list = (
         db.query(Devis)
-        .filter(
-            Devis.id_projet == projet.id_projet
-        )
+        .filter(Devis.projet_id == projet.id)
         .all()
     )
 
-    # Totaux financiers
-    total_devis_ht = round(
-        sum(_to_float(d.total_ht) for d in devis_list),
-        2
-    )
+    total_devis_ht = round(sum(_to_float(d.total_ht) for d in devis_list), 2)
+    total_cout = round(sum(_to_float(d.cout_total) for d in devis_list), 2)
+    marge_globale_eur = round(total_devis_ht - total_cout, 2)
 
-    total_cout = round(
-        sum(_to_float(d.cout_total) for d in devis_list),
-        2
-    )
-
-    marge_globale_eur = round(
-        total_devis_ht - total_cout,
-        2
-    )
-
-    # Taux de rendement par rapport au coût
     taux_rendement_cout_pct = round(
-        (marge_globale_eur / total_cout) * 100,
-        2
+        (marge_globale_eur / total_cout) * 100, 2
     ) if total_cout > 0 else 0.0
 
-    # Taux de marque
     taux_marque_global = round(
-        (marge_globale_eur / total_devis_ht) * 100,
-        2
+        (marge_globale_eur / total_devis_ht) * 100, 2
     ) if total_devis_ht > 0 else 0.0
 
-    # Truth Gate
     warnings = []
-
-    if (
-        total_devis_ht > 0
-        and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE
-    ):
+    if total_devis_ht > 0 and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE:
         warnings.append(
-            f"Taux de marque global faible : "
-            f"{taux_marque_global}% "
-            f"(seuil minimum : "
-            f"{TRUTH_GATE_MIN_TAUX_MARQUE}%)"
+            f"Taux de marque global faible : {taux_marque_global}% "
+            f"(seuil minimum : {TRUTH_GATE_MIN_TAUX_MARQUE}%)"
         )
 
     return {
-        "id_projet": str(projet.id_projet),
+        "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
-        "statut": projet.statut,
-        "budget_initial_ht": _to_float(
-            projet.budget_initial_ht
-        ),
-        "marge_cible_pct": _to_float(
-            projet.marge_cible_pct
-        ),
+        "budget_initial_ht": _to_float(projet.budget_initial_ht),
         "total_devis_ht": total_devis_ht,
         "total_cout": total_cout,
         "marge_globale_eur": marge_globale_eur,
         "taux_rendement_cout_pct": taux_rendement_cout_pct,
         "taux_marque_global": taux_marque_global,
-        "can_send": (
-            total_devis_ht > 0
-            and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE
-        ),
+        "can_send": total_devis_ht > 0 and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE,
         "nombre_devis": len(devis_list),
         "warnings": warnings,
         "updated_at": datetime.now(timezone.utc).isoformat()
