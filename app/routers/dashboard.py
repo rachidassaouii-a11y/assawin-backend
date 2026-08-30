@@ -23,16 +23,14 @@ def get_dashboard_summary(
     Aucune donnée financière n'est simulée.
     """
 
-    # Projets appartenant à l'utilisateur connecté
     projets = (
         db.query(Projet)
-        .filter(Projet.id_user == str(current_user.id_user))
+        .filter(Projet.user_id == str(current_user.id))
         .all()
     )
 
-    projet_ids = [str(projet.id_projet) for projet in projets]
+    projet_ids = [str(projet.id) for projet in projets]
 
-    # Aucun projet : réponse propre et cohérente
     if not projet_ids:
         return {
             "nombre_projets": 0,
@@ -44,14 +42,12 @@ def get_dashboard_summary(
             "taux_marque_pct": 0.0
         }
 
-    # Tous les devis rattachés aux projets de l'utilisateur
     devis = (
         db.query(Devis)
-        .filter(Devis.id_projet.in_(projet_ids))
+        .filter(Devis.projet_id.in_(projet_ids))
         .all()
     )
 
-    # Agrégats financiers
     chiffre_affaires_total = round(
         sum(float(devis_item.total_ht or 0.0) for devis_item in devis),
         2
@@ -72,15 +68,9 @@ def get_dashboard_summary(
         2
     ) if chiffre_affaires_total > 0 else 0.0
 
-    chantiers_en_cours = sum(
-        1
-        for projet in projets
-        if projet.statut == "EN_COURS"
-    )
-
     return {
         "nombre_projets": len(projets),
-        "chantiers_en_cours": chantiers_en_cours,
+        "chantiers_en_cours": len(projets),
         "nombre_devis": len(devis),
         "chiffre_affaires_total": chiffre_affaires_total,
         "cout_total": cout_total,
