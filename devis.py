@@ -128,10 +128,6 @@ def lister_devis(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Récupère la liste de tous les devis liés aux projets de l'utilisateur connecté.
-    Résout l'erreur 405 Method Not Allowed sur /api/v1/devis/
-    """
     devis_list = (
         db.query(Devis)
         .join(Projet, Devis.projet_id == Projet.id)
@@ -244,20 +240,72 @@ def create_and_persist_devis(
     }
 
 
-@router.delete("/{id_devis}")
-def delete_devis(
+@router.put("/{id_devis}", response_model=DevisPersistedResponse)
+def update_devis(
     id_devis: str,
+    data: DevisCalculateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Supprime un devis existant.
+    Met à jour un devis existant.
     """
     try:
         uuid.UUID(id_devis)
     except (ValueError, TypeError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format id_devis UUID invalide"
+        )
+
+    devis = (
+        db.query(Devis)
+        .join(Projet, Devis.projet_id == Projet.id)
+        .filter(
+            Devis.id == id_devis,
+            Projet.user_id == str(current_user.id)
+        )
+        .first()
+    )
+
+    if not devis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Devis introuvable ou non autorisé"
+        )
+
+    calculs = _calculer_totaux_devis(data.lots, data.acompte_pct)
+    truth_gate = _evaluer_truth_gate(calculs, data.fournisseur_non_verifie)
+
+    devis.total_ht = calculs["total_ht"]
+    devis.cout_total = calculs["cout_total"]
+    if hasattr(devis, "reference"):
+        devis.reference = data.titre.strip()
+
+    db.commit()
+    db.refresh(devis)
+
+    return {
+        "id_devis": str(devis.id),
+        "id_projet": str(devis.projet_id),
+        "statut": getattr(devis, "statut", "BROUILLON"),
+        "reference": data.titre.strip(),
+        **calculs,
+        **truth_gate,
+    }
+
+
+@router.delete("/{id_devis}")
+def delete_devis(
+    id_devis: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        uuid.UUID(id_devis)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REFERENCE,
             detail="Format id_devis UUID invalide"
         )
 
