@@ -123,6 +123,57 @@ def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
     return {"warnings": warnings, "can_send": can_send}
 
 
+@router.get("/", response_model=List[DevisPersistedResponse])
+def lister_devis(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Récupère la liste de tous les devis liés aux projets de l'utilisateur connecté.
+    Résout l'erreur 405 Method Not Allowed sur /api/v1/devis/
+    """
+    devis_list = (
+        db.query(Devis)
+        .join(Projet, Devis.projet_id == Projet.id)
+        .filter(Projet.user_id == str(current_user.id))
+        .all()
+    )
+
+    result = []
+    for d in devis_list:
+        total_ht = float(d.total_ht or 0.0)
+        cout_total = float(d.cout_total or 0.0)
+        total_tva = round(total_ht * 0.2, 2)
+        total_ttc = round(total_ht + total_tva, 2)
+        marge_brute_eur = round(total_ht - cout_total, 2)
+        taux_rendement_cout_pct = round((marge_brute_eur / cout_total) * 100, 2) if cout_total > 0 else 0.0
+        taux_marque_pct = round((marge_brute_eur / total_ht) * 100, 2) if total_ht > 0 else 0.0
+        acompte_montant = round(total_ttc * 0.3, 2)
+
+        warnings = []
+        if taux_marque_pct < TRUTH_GATE_MIN_TAUX_MARQUE:
+            warnings.append(f"Taux de marque faible : {taux_marque_pct}% (seuil minimum : {TRUTH_GATE_MIN_TAUX_MARQUE}%)")
+        can_send = total_ht > 0 and taux_marque_pct >= TRUTH_GATE_MIN_TAUX_MARQUE
+
+        result.append({
+            "id_devis": str(d.id),
+            "id_projet": str(d.projet_id),
+            "statut": getattr(d, "statut", "BROUILLON"),
+            "reference": getattr(d, "reference", getattr(d, "titre", "Devis")),
+            "total_ht": total_ht,
+            "cout_total": cout_total,
+            "total_tva": total_tva,
+            "total_ttc": total_ttc,
+            "marge_brute_eur": marge_brute_eur,
+            "taux_rendement_cout_pct": taux_rendement_cout_pct,
+            "taux_marque_pct": taux_marque_pct,
+            "acompte_montant": acompte_montant,
+            "warnings": warnings,
+            "can_send": can_send,
+        })
+    return result
+
+
 @router.post("/calculate", response_model=DevisResponse)
 def calculate_devis(
     data: DevisCalculateRequest,
@@ -191,3 +242,41 @@ def create_and_persist_devis(
         **calculs,
         **truth_gate,
     }
+
+
+@router.delete("/{id_devis}")
+def delete_devis(
+    id_devis: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Supprime un devis existant.
+    """
+    try:
+        uuid.UUID(id_devis)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format id_devis UUID invalide"
+        )
+
+    devis = (
+        db.query(Devis)
+        .join(Projet, Devis.projet_id == Projet.id)
+        .filter(
+            Devis.id == id_devis,
+            Projet.user_id == str(current_user.id)
+        )
+        .first()
+    )
+
+    if not devis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Devis introuvable ou non autorisé"
+        )
+
+    db.delete(devis)
+    db.commit()
+    return {"message": "Devis supprimé avec succès"}
