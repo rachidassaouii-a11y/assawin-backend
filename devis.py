@@ -146,16 +146,7 @@ def lister_devis(
         taux_marque_pct = round((marge_brute_eur / total_ht) * 100, 2) if total_ht > 0 else 0.0
         acompte_montant = round(total_ttc * 0.3, 2)
 
-        warnings = []
-        if taux_marque_pct < TRUTH_GATE_MIN_TAUX_MARQUE:
-            warnings.append(f"Taux de marque faible : {taux_marque_pct}% (seuil minimum : {TRUTH_GATE_MIN_TAUX_MARQUE}%)")
-        can_send = total_ht > 0 and taux_marque_pct >= TRUTH_GATE_MIN_TAUX_MARQUE
-
-        result.append({
-            "id_devis": str(d.id),
-            "id_projet": str(d.projet_id),
-            "statut": getattr(d, "statut", "BROUILLON"),
-            "reference": getattr(d, "reference", getattr(d, "titre", "Devis")),
+        calculs = {
             "total_ht": total_ht,
             "cout_total": cout_total,
             "total_tva": total_tva,
@@ -164,8 +155,18 @@ def lister_devis(
             "taux_rendement_cout_pct": taux_rendement_cout_pct,
             "taux_marque_pct": taux_marque_pct,
             "acompte_montant": acompte_montant,
-            "warnings": warnings,
-            "can_send": can_send,
+        }
+        
+        fournisseur_non_verifie = getattr(d, "fournisseur_non_verifie", False)
+        truth_gate = _evaluer_truth_gate(calculs, fournisseur_non_verifie)
+
+        result.append({
+            "id_devis": str(d.id),
+            "id_projet": str(d.projet_id),
+            "statut": getattr(d, "statut", "BROUILLON"),
+            "reference": getattr(d, "reference", getattr(d, "titre", "Devis")),
+            **calculs,
+            **truth_gate,
         })
     return result
 
@@ -247,9 +248,6 @@ def update_devis(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Met à jour un devis existant.
-    """
     try:
         uuid.UUID(id_devis)
     except (ValueError, TypeError):
@@ -305,7 +303,7 @@ def delete_devis(
         uuid.UUID(id_devis)
     except (ValueError, TypeError):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REFERENCE,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Format id_devis UUID invalide"
         )
 
