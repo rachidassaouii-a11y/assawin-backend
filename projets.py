@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.all_models import Projet, Devis, User
+from app.routers.notifications import creer_notification
 
 
 router = APIRouter(
@@ -25,6 +26,7 @@ class ProjetCreate(BaseModel):
     marge_cible_pct: float = Field(30.0, ge=0, le=100)
     statut: str = Field("EN_COURS")
     description: Optional[str] = None
+    adresse: Optional[str] = None
 
 
 class ProjetResponse(BaseModel):
@@ -34,6 +36,7 @@ class ProjetResponse(BaseModel):
     marge_cible_pct: float
     statut: str
     description: Optional[str] = None
+    adresse: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -50,7 +53,8 @@ def _to_response(projet: Projet, marge_cible_pct: float = 30.0, statut: str = "E
         "budget_initial_ht": _to_float(projet.budget_initial_ht),
         "marge_cible_pct": marge_cible_pct,
         "statut": statut,
-        "description": description,
+        "description": description or getattr(projet, "description", None),
+        "adresse": getattr(projet, "adresse", None),
     }
 
 
@@ -70,11 +74,19 @@ def create_projet(
         budget_initial_ht=data.budget_initial_ht,
         user_id=str(current_user.id),
         created_at=datetime.now(timezone.utc),
+        adresse=data.adresse,
+        description=data.description,
     )
 
     db.add(nouveau_projet)
     db.commit()
     db.refresh(nouveau_projet)
+
+    creer_notification(
+        db,
+        str(current_user.id),
+        f"Nouveau projet créé : {nouveau_projet.nom_projet}"
+    )
 
     return _to_response(
         nouveau_projet,
@@ -99,6 +111,54 @@ def list_projets(
         .all()
     )
     return [_to_response(p) for p in projets]
+
+
+@router.get("/{projet_id}/detail")
+def get_projet_detail(
+    projet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Détail financier réel d'un projet précis : CA, marge, taux de marque propres à ce projet."""
+    try:
+        uuid.UUID(projet_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format UUID projet invalide"
+        )
+
+    projet = (
+        db.query(Projet)
+        .filter(Projet.id == projet_id, Projet.user_id == str(current_user.id))
+        .first()
+    )
+
+    if not projet:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Projet introuvable ou non autorisé"
+        )
+
+    devis_list = db.query(Devis).filter(Devis.projet_id == projet.id).all()
+
+    ca = round(sum(_to_float(d.total_ht) for d in devis_list), 2)
+    cout = round(sum(_to_float(d.cout_total) for d in devis_list), 2)
+    marge = round(ca - cout, 2)
+    taux_marque = round((marge / ca) * 100, 2) if ca > 0 else 0.0
+
+    return {
+        "id_projet": str(projet.id),
+        "nom_projet": projet.nom_projet,
+        "adresse": getattr(projet, "adresse", None),
+        "description": getattr(projet, "description", None),
+        "budget_initial_ht": _to_float(projet.budget_initial_ht),
+        "chiffre_affaires": ca,
+        "cout_total": cout,
+        "marge_brute_eur": marge,
+        "taux_marque_pct": taux_marque,
+        "nombre_devis": len(devis_list),
+    }
 
 
 @router.get("/{projet_id}/cockpit")
