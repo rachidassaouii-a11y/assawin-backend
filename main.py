@@ -6,6 +6,9 @@ from app.models.all_models import Base  # la VRAIE Base — celle où les modèl
 from projets import router as projets_router
 from devis import router as devis_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.photos import router as photos_router
+from app.routers.comptes_rendus import router as comptes_rendus_router
+from app.routers.notifications import router as notifications_router
 from app.routers.auth import router as auth_router
 
 app = FastAPI(
