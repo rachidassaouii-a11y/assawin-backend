@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.routers.notifications import creer_notification
 from app.models.all_models import Devis, Projet, User
 
 router = APIRouter(prefix="/api/v1/devis", tags=["Devis & Calculs"])
