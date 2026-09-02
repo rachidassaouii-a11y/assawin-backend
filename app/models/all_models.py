@@ -73,4 +73,35 @@ class Avancement(Base):
     projet_id = Column(String(36), ForeignKey("projets.id"))
     
     projet = relationship("Projet", back_populates="avancements")
+class Photo(Base):
+    __tablename__ = "photos"
 
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    projet_id = Column(String(36), ForeignKey("projets.id"))
+    image_base64 = Column(String, nullable=False)
+    legende = Column(String)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    projet = relationship("Projet", back_populates="photos")
+
+
+class CompteRendu(Base):
+    __tablename__ = "comptes_rendus"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    projet_id = Column(String(36), ForeignKey("projets.id"))
+    titre = Column(String, nullable=False)
+    contenu = Column(String)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    projet = relationship("Projet", back_populates="comptes_rendus")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"))
+    message = Column(String, nullable=False)
+    lu = Column(String, default="non")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
