@@ -116,11 +116,24 @@ def calculate_devis(
             marge_cible_pct=data.marge_cible_pct,
             fournisseur_non_verifie=data.fournisseur_non_verifie,
             statut="BROUILLON",
-        )
         db.add(nouveau_devis)
-        db.commit()
+    db.commit()
+    db.refresh(nouveau_devis)
+
+    if truth_gate["can_send"]:
+        creer_notification(
+            db,
+            str(current_user.id),
+            f"Devis créé et validé : {data.titre.strip()} ({calculs['taux_marque_pct']}% de marge)"
+        )
+    else:
+        creer_notification(
+            db,
+            str(current_user.id),
+            f"Devis créé avec marge insuffisante : {data.titre.strip()} — à vérifier"
+        )
 
     return {
-        **calculs,
+     **calculs,
         "warnings": warnings
     }
