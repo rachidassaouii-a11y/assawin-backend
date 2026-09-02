@@ -28,7 +28,9 @@ class Projet(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     user = relationship("User", back_populates="projets")
-    devis = relationship("Devis", back_populates="projet")
+devis = relationship("Devis", back_populates="projet")
+    photos = relationship("Photo", back_populates="projet")
+    comptes_rendus = relationship("CompteRendu", back_populates="projet")
     alertes = relationship("Alerte", back_populates="projet")
     decisions = relationship("Decision", back_populates="projet")
     avancements = relationship("Avancement", back_populates="projet")
