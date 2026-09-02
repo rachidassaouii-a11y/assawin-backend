@@ -32,6 +32,9 @@ app.include_router(auth_router)
 app.include_router(projets_router)
 app.include_router(devis_router)
 app.include_router(dashboard_router)
+app.include_router(photos_router)
+app.include_router(comptes_rendus_router)
+app.include_router(notifications_router)
 
 
 @app.get("/")
