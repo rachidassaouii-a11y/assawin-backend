@@ -9,6 +9,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.photos import router as photos_router
 from app.routers.comptes_rendus import router as comptes_rendus_router
 from app.routers.notifications import router as notifications_router
+from app.routers.clients import router as clients_router
 from app.routers.auth import router as auth_router
 
 app = FastAPI(
@@ -35,6 +36,7 @@ app.include_router(dashboard_router)
 app.include_router(photos_router)
 app.include_router(comptes_rendus_router)
 app.include_router(notifications_router)
+app.include_router(clients_router)
 
 
 @app.get("/")
