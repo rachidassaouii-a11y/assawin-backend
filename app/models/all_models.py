@@ -30,6 +30,7 @@ class Projet(Base):
     user = relationship("User", back_populates="projets")
 devis = relationship("Devis", back_populates="projet")
     photos = relationship("Photo", back_populates="projet")
+    client = relationship("Client", back_populates="projets")
     comptes_rendus = relationship("CompteRendu", back_populates="projet")
     alertes = relationship("Alerte", back_populates="projet")
     decisions = relationship("Decision", back_populates="projet")
@@ -117,6 +118,7 @@ class Client(Base):
     telephone = Column(String)
     email = Column(String)
     adresse = Column(String)
+client_id = Column(String(36), ForeignKey("clients.id"))
     siret = Column(String)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
