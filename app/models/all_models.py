@@ -107,3 +107,17 @@ class Notification(Base):
     message = Column(String, nullable=False)
     lu = Column(String, default="non")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+class Client(Base):
+    __tablename__ = "clients"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"))
+    nom = Column(String, nullable=False)
+    type_client = Column(String, default="particulier")  # particulier | professionnel
+    telephone = Column(String)
+    email = Column(String)
+    adresse = Column(String)
+    siret = Column(String)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    projets = relationship("Projet", back_populates="client")
