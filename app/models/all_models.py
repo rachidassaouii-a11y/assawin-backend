@@ -403,3 +403,22 @@ class Notification(Base):
         DateTime,
         default=lambda: datetime.now(timezone.utc)
     )
+marge_cible_pct = Column(
+    Float,
+    default=30.0
+)
+
+statut = Column(
+    String,
+    default="EN_COURS"
+)
+
+description = Column(
+    String,
+    nullable=True
+)
+
+adresse = Column(
+    String,
+    nullable=True
+)
