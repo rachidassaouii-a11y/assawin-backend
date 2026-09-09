@@ -170,6 +170,25 @@ class Devis(Base):
         Float,
         default=0.0
     )
+    marge_cible_pct = Column(
+    Float,
+    default=30.0
+)
+
+statut = Column(
+    String,
+    default="EN_COURS"
+)
+
+description = Column(
+    String,
+    nullable=True
+)
+
+adresse = Column(
+    String,
+    nullable=True
+)
 
     projet_id = Column(
         String(36),
