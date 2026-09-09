@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.all_models import Projet, Devis, User
+from app.models.all_models import Projet, Devis, Client, User
 from app.routers.notifications import creer_notification
 
 
@@ -27,6 +27,7 @@ class ProjetCreate(BaseModel):
     statut: str = Field("EN_COURS")
     description: Optional[str] = None
     adresse: Optional[str] = None
+    client_id: Optional[str] = None
 
 
 class ProjetResponse(BaseModel):
@@ -37,6 +38,8 @@ class ProjetResponse(BaseModel):
     statut: str
     description: Optional[str] = None
     adresse: Optional[str] = None
+    client_id: Optional[str] = None
+    client_nom: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -47,6 +50,9 @@ def _to_float(value) -> float:
 
 
 def _to_response(projet: Projet, marge_cible_pct: float = 30.0, statut: str = "EN_COURS", description: Optional[str] = None) -> dict:
+    client_nom = None
+    if getattr(projet, "client", None):
+        client_nom = projet.client.nom
     return {
         "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
@@ -55,6 +61,8 @@ def _to_response(projet: Projet, marge_cible_pct: float = 30.0, statut: str = "E
         "statut": statut,
         "description": description or getattr(projet, "description", None),
         "adresse": getattr(projet, "adresse", None),
+        "client_id": getattr(projet, "client_id", None),
+        "client_nom": client_nom,
     }
 
 
@@ -68,6 +76,16 @@ def create_projet(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    client = None
+    if data.client_id:
+        client = (
+            db.query(Client)
+            .filter(Client.id == data.client_id, Client.user_id == str(current_user.id))
+            .first()
+        )
+        if not client:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client introuvable ou non autorisé")
+
     nouveau_projet = Projet(
         id=str(uuid.uuid4()),
         nom_projet=data.nom_projet.strip(),
@@ -76,6 +94,7 @@ def create_projet(
         created_at=datetime.now(timezone.utc),
         adresse=data.adresse,
         description=data.description,
+        client_id=data.client_id,
     )
 
     db.add(nouveau_projet)
@@ -119,7 +138,6 @@ def get_projet_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Détail financier réel d'un projet précis : CA, marge, taux de marque propres à ce projet."""
     try:
         uuid.UUID(projet_id)
     except (ValueError, TypeError):
@@ -147,6 +165,10 @@ def get_projet_detail(
     marge = round(ca - cout, 2)
     taux_marque = round((marge / ca) * 100, 2) if ca > 0 else 0.0
 
+    client_nom = None
+    if getattr(projet, "client", None):
+        client_nom = projet.client.nom
+
     return {
         "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
@@ -158,74 +180,5 @@ def get_projet_detail(
         "marge_brute_eur": marge,
         "taux_marque_pct": taux_marque,
         "nombre_devis": len(devis_list),
-    }
-
-
-@router.get("/{projet_id}/cockpit")
-def get_projet_cockpit(
-    projet_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    try:
-        uuid.UUID(projet_id)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Format UUID projet invalide"
-        )
-
-    projet = (
-        db.query(Projet)
-        .filter(
-            Projet.id == projet_id,
-            Projet.user_id == str(current_user.id)
-        )
-        .first()
-    )
-
-    if not projet:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Projet introuvable ou non autorisé"
-        )
-
-    devis_list = (
-        db.query(Devis)
-        .filter(Devis.projet_id == projet.id)
-        .all()
-    )
-
-    total_devis_ht = round(sum(_to_float(d.total_ht) for d in devis_list), 2)
-    total_cout = round(sum(_to_float(d.cout_total) for d in devis_list), 2)
-    marge_globale_eur = round(total_devis_ht - total_cout, 2)
-
-    taux_rendement_cout_pct = round(
-        (marge_globale_eur / total_cout) * 100, 2
-    ) if total_cout > 0 else 0.0
-
-    taux_marque_global = round(
-        (marge_globale_eur / total_devis_ht) * 100, 2
-    ) if total_devis_ht > 0 else 0.0
-
-    warnings = []
-    if total_devis_ht > 0 and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE:
-        warnings.append(
-            f"Taux de marque global faible : {taux_marque_global}% "
-            f"(seuil minimum : {TRUTH_GATE_MIN_TAUX_MARQUE}%)"
-        )
-
-    return {
-        "id_projet": str(projet.id),
-        "nom_projet": projet.nom_projet,
-        "budget_initial_ht": _to_float(projet.budget_initial_ht),
-        "total_devis_ht": total_devis_ht,
-        "total_cout": total_cout,
-        "marge_globale_eur": marge_globale_eur,
-        "taux_rendement_cout_pct": taux_rendement_cout_pct,
-        "taux_marque_global": taux_marque_global,
-        "can_send": total_devis_ht > 0 and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE,
-        "nombre_devis": len(devis_list),
-        "warnings": warnings,
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
+        "client_nom": client_nom,
+        "client_id": getattr(projet, "client_id", None
