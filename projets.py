@@ -51,17 +51,29 @@ def _to_float(value) -> float:
 
 def _to_response(projet: Projet) -> dict:
     client_nom = None
+
     if getattr(projet, "client", None):
         client_nom = projet.client.nom
+
     return {
         "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
         "budget_initial_ht": _to_float(projet.budget_initial_ht),
-        "marge_cible_pct": getattr(projet, "marge_cible_pct", 30.0) or 30.0,
-        "statut": getattr(projet, "statut", "EN_COURS") or "EN_COURS",
-        "description": getattr(projet, "description", None),
-        "adresse": getattr(projet, "adresse", None),
-        "client_id": getattr(projet, "client_id", None),
+        "marge_cible_pct": _to_float(
+            getattr(projet, "marge_cible_pct", 30.0)
+        ),
+        "statut": getattr(
+            projet, "statut", "EN_COURS"
+        ),
+        "description": getattr(
+            projet, "description", None
+        ),
+        "adresse": getattr(
+            projet, "adresse", None
+        ),
+        "client_id": getattr(
+            projet, "client_id", None
+        ),
         "client_nom": client_nom,
     }
 
@@ -76,32 +88,50 @@ def create_projet(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # ------------------------------------------------------------
+    # Vérification du client
+    # ------------------------------------------------------------
+    client = None
+
     if data.client_id:
         client = (
             db.query(Client)
-            .filter(Client.id == data.client_id, Client.user_id == str(current_user.id))
+            .filter(
+                Client.id == data.client_id,
+                Client.user_id == str(current_user.id)
+            )
             .first()
         )
-        if not client:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client introuvable ou non autorisé")
 
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Client introuvable ou non autorisé"
+            )
+
+    # ------------------------------------------------------------
+    # Création du projet
+    # ------------------------------------------------------------
     nouveau_projet = Projet(
         id=str(uuid.uuid4()),
         nom_projet=data.nom_projet.strip(),
         budget_initial_ht=data.budget_initial_ht,
-        user_id=str(current_user.id),
-        created_at=datetime.now(timezone.utc),
-        adresse=data.adresse,
-        description=data.description,
-        client_id=data.client_id,
         marge_cible_pct=data.marge_cible_pct,
         statut=data.statut,
+        description=data.description,
+        adresse=data.adresse,
+        client_id=data.client_id,
+        user_id=str(current_user.id),
+        created_at=datetime.now(timezone.utc),
     )
 
     db.add(nouveau_projet)
     db.commit()
     db.refresh(nouveau_projet)
 
+    # ------------------------------------------------------------
+    # Notification
+    # ------------------------------------------------------------
     creer_notification(
         db,
         str(current_user.id),
@@ -121,10 +151,15 @@ def list_projets(
 ):
     projets = (
         db.query(Projet)
-        .filter(Projet.user_id == str(current_user.id))
-        .order_by(Projet.created_at.desc())
+        .filter(
+            Projet.user_id == str(current_user.id)
+        )
+        .order_by(
+            Projet.created_at.desc()
+        )
         .all()
     )
+
     return [_to_response(p) for p in projets]
 
 
@@ -144,7 +179,10 @@ def get_projet_detail(
 
     projet = (
         db.query(Projet)
-        .filter(Projet.id == projet_id, Projet.user_id == str(current_user.id))
+        .filter(
+            Projet.id == projet_id,
+            Projet.user_id == str(current_user.id)
+        )
         .first()
     )
 
@@ -154,30 +192,84 @@ def get_projet_detail(
             detail="Projet introuvable ou non autorisé"
         )
 
-    devis_list = db.query(Devis).filter(Devis.projet_id == projet.id).all()
+    devis_list = (
+        db.query(Devis)
+        .filter(
+            Devis.projet_id == projet.id
+        )
+        .all()
+    )
 
-    ca = round(sum(_to_float(d.total_ht) for d in devis_list), 2)
-    cout = round(sum(_to_float(d.cout_total) for d in devis_list), 2)
-    marge = round(ca - cout, 2)
-    taux_marque = round((marge / ca) * 100, 2) if ca > 0 else 0.0
+    ca = round(
+        sum(
+            _to_float(d.total_ht)
+            for d in devis_list
+        ),
+        2
+    )
+
+    cout = round(
+        sum(
+            _to_float(d.cout_total)
+            for d in devis_list
+        ),
+        2
+    )
+
+    marge = round(
+        ca - cout,
+        2
+    )
+
+    taux_marque = round(
+        (marge / ca) * 100,
+        2
+    ) if ca > 0 else 0.0
 
     client_nom = None
+
     if getattr(projet, "client", None):
         client_nom = projet.client.nom
 
     return {
         "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
-        "adresse": getattr(projet, "adresse", None),
-        "description": getattr(projet, "description", None),
-        "budget_initial_ht": _to_float(projet.budget_initial_ht),
+        "adresse": getattr(
+            projet,
+            "adresse",
+            None
+        ),
+        "description": getattr(
+            projet,
+            "description",
+            None
+        ),
+        "budget_initial_ht": _to_float(
+            projet.budget_initial_ht
+        ),
+        "marge_cible_pct": _to_float(
+            getattr(
+                projet,
+                "marge_cible_pct",
+                30.0
+            )
+        ),
+        "statut": getattr(
+            projet,
+            "statut",
+            "EN_COURS"
+        ),
         "chiffre_affaires": ca,
         "cout_total": cout,
         "marge_brute_eur": marge,
         "taux_marque_pct": taux_marque,
         "nombre_devis": len(devis_list),
         "client_nom": client_nom,
-        "client_id": getattr(projet, "client_id", None),
+        "client_id": getattr(
+            projet,
+            "client_id",
+            None
+        ),
     }
 
 
@@ -212,40 +304,91 @@ def get_projet_cockpit(
 
     devis_list = (
         db.query(Devis)
-        .filter(Devis.projet_id == projet.id)
+        .filter(
+            Devis.projet_id == projet.id
+        )
         .all()
     )
 
-    total_devis_ht = round(sum(_to_float(d.total_ht) for d in devis_list), 2)
-    total_cout = round(sum(_to_float(d.cout_total) for d in devis_list), 2)
-    marge_globale_eur = round(total_devis_ht - total_cout, 2)
+    total_devis_ht = round(
+        sum(
+            _to_float(d.total_ht)
+            for d in devis_list
+        ),
+        2
+    )
+
+    total_cout = round(
+        sum(
+            _to_float(d.cout_total)
+            for d in devis_list
+        ),
+        2
+    )
+
+    marge_globale_eur = round(
+        total_devis_ht - total_cout,
+        2
+    )
 
     taux_rendement_cout_pct = round(
-        (marge_globale_eur / total_cout) * 100, 2
+        (marge_globale_eur / total_cout) * 100,
+        2
     ) if total_cout > 0 else 0.0
 
     taux_marque_global = round(
-        (marge_globale_eur / total_devis_ht) * 100, 2
+        (marge_globale_eur / total_devis_ht) * 100,
+        2
     ) if total_devis_ht > 0 else 0.0
 
     warnings = []
-    if total_devis_ht > 0 and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE:
+
+    if (
+        total_devis_ht > 0
+        and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE
+    ):
         warnings.append(
-            f"Taux de marque global faible : {taux_marque_global}% "
-            f"(seuil minimum : {TRUTH_GATE_MIN_TAUX_MARQUE}%)"
+            f"Taux de marque global faible : "
+            f"{taux_marque_global}% "
+            f"(seuil minimum : "
+            f"{TRUTH_GATE_MIN_TAUX_MARQUE}%)"
         )
 
     return {
         "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
-        "budget_initial_ht": _to_float(projet.budget_initial_ht),
+        "budget_initial_ht": _to_float(
+            projet.budget_initial_ht
+        ),
+        "marge_cible_pct": _to_float(
+            getattr(
+                projet,
+                "marge_cible_pct",
+                30.0
+            )
+        ),
+        "statut": getattr(
+            projet,
+            "statut",
+            "EN_COURS"
+        ),
+        "client_id": getattr(
+            projet,
+            "client_id",
+            None
+        ),
         "total_devis_ht": total_devis_ht,
         "total_cout": total_cout,
         "marge_globale_eur": marge_globale_eur,
         "taux_rendement_cout_pct": taux_rendement_cout_pct,
         "taux_marque_global": taux_marque_global,
-        "can_send": total_devis_ht > 0 and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE,
+        "can_send": (
+            total_devis_ht > 0
+            and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE
+        ),
         "nombre_devis": len(devis_list),
         "warnings": warnings,
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(
+            timezone.utc
+        ).isoformat()
     }
