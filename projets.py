@@ -49,7 +49,7 @@ def _to_float(value) -> float:
     return float(value or 0.0)
 
 
-def _to_response(projet: Projet, marge_cible_pct: float = 30.0, statut: str = "EN_COURS", description: Optional[str] = None) -> dict:
+def _to_response(projet: Projet) -> dict:
     client_nom = None
     if getattr(projet, "client", None):
         client_nom = projet.client.nom
@@ -57,9 +57,9 @@ def _to_response(projet: Projet, marge_cible_pct: float = 30.0, statut: str = "E
         "id_projet": str(projet.id),
         "nom_projet": projet.nom_projet,
         "budget_initial_ht": _to_float(projet.budget_initial_ht),
-        "marge_cible_pct": marge_cible_pct,
-        "statut": statut,
-        "description": description or getattr(projet, "description", None),
+        "marge_cible_pct": getattr(projet, "marge_cible_pct", 30.0) or 30.0,
+        "statut": getattr(projet, "statut", "EN_COURS") or "EN_COURS",
+        "description": getattr(projet, "description", None),
         "adresse": getattr(projet, "adresse", None),
         "client_id": getattr(projet, "client_id", None),
         "client_nom": client_nom,
@@ -76,7 +76,6 @@ def create_projet(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    client = None
     if data.client_id:
         client = (
             db.query(Client)
@@ -95,6 +94,8 @@ def create_projet(
         adresse=data.adresse,
         description=data.description,
         client_id=data.client_id,
+        marge_cible_pct=data.marge_cible_pct,
+        statut=data.statut,
     )
 
     db.add(nouveau_projet)
@@ -107,12 +108,7 @@ def create_projet(
         f"Nouveau projet créé : {nouveau_projet.nom_projet}"
     )
 
-    return _to_response(
-        nouveau_projet,
-        marge_cible_pct=data.marge_cible_pct,
-        statut=data.statut,
-        description=data.description,
-    )
+    return _to_response(nouveau_projet)
 
 
 @router.get(
