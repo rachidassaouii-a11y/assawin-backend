@@ -1,394 +1,118 @@
-import uuid
-from datetime import datetime, timezone
-from typing import List, Optional
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from app.core.database import engine
+from app.models.all_models import Base
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from projets import router as projets_router
+from devis import router as devis_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.photos import router as photos_router
+from app.routers.comptes_rendus import router as comptes_rendus_router
+from app.routers.notifications import router as notifications_router
+from app.routers.clients import router as clients_router
+from app.routers.auth import router as auth_router
 
-from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.all_models import Projet, Devis, Client, User
-from app.routers.notifications import creer_notification
 
-
-router = APIRouter(
-    prefix="/api/v1/projets",
-    tags=["Projets & Cockpit"]
+app = FastAPI(
+    title="ASSAWIN BTP Backend API",
+    version="1.0.0",
+    description="ASSAWIN — Noyau de calcul, gestion des projets, devis, marges et pilotage métier."
 )
 
-TRUTH_GATE_MIN_TAUX_MARQUE = 20.0
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-class ProjetCreate(BaseModel):
-    nom_projet: str = Field(..., min_length=1)
-    budget_initial_ht: float = Field(0.0, ge=0)
-    marge_cible_pct: float = Field(30.0, ge=0, le=100)
-    statut: str = Field("EN_COURS")
-    description: Optional[str] = None
-    adresse: Optional[str] = None
-    client_id: Optional[str] = None
+# ============================================================
+# CRÉATION DES TABLES MANQUANTES
+# ============================================================
+
+# Base SQLAlchemy utilisée par tous les modèles ASSAWIN
+Base.metadata.create_all(bind=engine)
 
 
-class ProjetResponse(BaseModel):
-    id_projet: str
-    nom_projet: str
-    budget_initial_ht: float
-    marge_cible_pct: float
-    statut: str
-    description: Optional[str] = None
-    adresse: Optional[str] = None
-    client_id: Optional[str] = None
-    client_nom: Optional[str] = None
+# ============================================================
+# MIGRATION AUTOMATIQUE
+# Ajoute les colonnes manquantes à la table projets
+# ============================================================
 
-    class Config:
-        from_attributes = True
+with engine.connect() as conn:
+
+    conn.execute(
+        text(
+            "ALTER TABLE projets "
+            "ADD COLUMN IF NOT EXISTS adresse VARCHAR"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE projets "
+            "ADD COLUMN IF NOT EXISTS description VARCHAR"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE projets "
+            "ADD COLUMN IF NOT EXISTS client_id VARCHAR(36)"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE projets "
+            "ADD COLUMN IF NOT EXISTS marge_cible_pct FLOAT DEFAULT 30.0"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE projets "
+            "ADD COLUMN IF NOT EXISTS statut VARCHAR DEFAULT 'EN_COURS'"
+        )
+    )
+
+    conn.commit()
 
 
-def _to_float(value) -> float:
-    return float(value or 0.0)
+# ============================================================
+# ROUTERS
+# ============================================================
+
+app.include_router(auth_router)
+app.include_router(projets_router)
+app.include_router(devis_router)
+app.include_router(dashboard_router)
+app.include_router(photos_router)
+app.include_router(comptes_rendus_router)
+app.include_router(notifications_router)
+app.include_router(clients_router)
 
 
-def _to_response(projet: Projet) -> dict:
-    client_nom = None
+# ============================================================
+# ROUTES SYSTÈME
+# ============================================================
 
-    if getattr(projet, "client", None):
-        client_nom = projet.client.nom
-
+@app.get("/")
+def read_root():
     return {
-        "id_projet": str(projet.id),
-        "nom_projet": projet.nom_projet,
-        "budget_initial_ht": _to_float(projet.budget_initial_ht),
-        "marge_cible_pct": _to_float(
-            getattr(projet, "marge_cible_pct", 30.0)
-        ),
-        "statut": getattr(
-            projet, "statut", "EN_COURS"
-        ),
-        "description": getattr(
-            projet, "description", None
-        ),
-        "adresse": getattr(
-            projet, "adresse", None
-        ),
-        "client_id": getattr(
-            projet, "client_id", None
-        ),
-        "client_nom": client_nom,
+        "message": "API ASSAWIN BTP en ligne",
+        "status": "active",
+        "version": "1.0.0"
     }
 
 
-@router.post(
-    "/",
-    status_code=status.HTTP_201_CREATED,
-    response_model=ProjetResponse
-)
-def create_projet(
-    data: ProjetCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    # ------------------------------------------------------------
-    # Vérification du client
-    # ------------------------------------------------------------
-    client = None
-
-    if data.client_id:
-        client = (
-            db.query(Client)
-            .filter(
-                Client.id == data.client_id,
-                Client.user_id == str(current_user.id)
-            )
-            .first()
-        )
-
-        if not client:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Client introuvable ou non autorisé"
-            )
-
-    # ------------------------------------------------------------
-    # Création du projet
-    # ------------------------------------------------------------
-    nouveau_projet = Projet(
-        id=str(uuid.uuid4()),
-        nom_projet=data.nom_projet.strip(),
-        budget_initial_ht=data.budget_initial_ht,
-        marge_cible_pct=data.marge_cible_pct,
-        statut=data.statut,
-        description=data.description,
-        adresse=data.adresse,
-        client_id=data.client_id,
-        user_id=str(current_user.id),
-        created_at=datetime.now(timezone.utc),
-    )
-
-    db.add(nouveau_projet)
-    db.commit()
-    db.refresh(nouveau_projet)
-
-    # ------------------------------------------------------------
-    # Notification
-    # ------------------------------------------------------------
-    creer_notification(
-        db,
-        str(current_user.id),
-        f"Nouveau projet créé : {nouveau_projet.nom_projet}"
-    )
-
-    return _to_response(nouveau_projet)
-
-
-@router.get(
-    "/",
-    response_model=List[ProjetResponse]
-)
-def list_projets(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    projets = (
-        db.query(Projet)
-        .filter(
-            Projet.user_id == str(current_user.id)
-        )
-        .order_by(
-            Projet.created_at.desc()
-        )
-        .all()
-    )
-
-    return [_to_response(p) for p in projets]
-
-
-@router.get("/{projet_id}/detail")
-def get_projet_detail(
-    projet_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    try:
-        uuid.UUID(projet_id)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Format UUID projet invalide"
-        )
-
-    projet = (
-        db.query(Projet)
-        .filter(
-            Projet.id == projet_id,
-            Projet.user_id == str(current_user.id)
-        )
-        .first()
-    )
-
-    if not projet:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Projet introuvable ou non autorisé"
-        )
-
-    devis_list = (
-        db.query(Devis)
-        .filter(
-            Devis.projet_id == projet.id
-        )
-        .all()
-    )
-
-    ca = round(
-        sum(
-            _to_float(d.total_ht)
-            for d in devis_list
-        ),
-        2
-    )
-
-    cout = round(
-        sum(
-            _to_float(d.cout_total)
-            for d in devis_list
-        ),
-        2
-    )
-
-    marge = round(
-        ca - cout,
-        2
-    )
-
-    taux_marque = round(
-        (marge / ca) * 100,
-        2
-    ) if ca > 0 else 0.0
-
-    client_nom = None
-
-    if getattr(projet, "client", None):
-        client_nom = projet.client.nom
-
+@app.get("/health")
+def health_check():
     return {
-        "id_projet": str(projet.id),
-        "nom_projet": projet.nom_projet,
-        "adresse": getattr(
-            projet,
-            "adresse",
-            None
-        ),
-        "description": getattr(
-            projet,
-            "description",
-            None
-        ),
-        "budget_initial_ht": _to_float(
-            projet.budget_initial_ht
-        ),
-        "marge_cible_pct": _to_float(
-            getattr(
-                projet,
-                "marge_cible_pct",
-                30.0
-            )
-        ),
-        "statut": getattr(
-            projet,
-            "statut",
-            "EN_COURS"
-        ),
-        "chiffre_affaires": ca,
-        "cout_total": cout,
-        "marge_brute_eur": marge,
-        "taux_marque_pct": taux_marque,
-        "nombre_devis": len(devis_list),
-        "client_nom": client_nom,
-        "client_id": getattr(
-            projet,
-            "client_id",
-            None
-        ),
-    }
-
-
-@router.get("/{projet_id}/cockpit")
-def get_projet_cockpit(
-    projet_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    try:
-        uuid.UUID(projet_id)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Format UUID projet invalide"
-        )
-
-    projet = (
-        db.query(Projet)
-        .filter(
-            Projet.id == projet_id,
-            Projet.user_id == str(current_user.id)
-        )
-        .first()
-    )
-
-    if not projet:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Projet introuvable ou non autorisé"
-        )
-
-    devis_list = (
-        db.query(Devis)
-        .filter(
-            Devis.projet_id == projet.id
-        )
-        .all()
-    )
-
-    total_devis_ht = round(
-        sum(
-            _to_float(d.total_ht)
-            for d in devis_list
-        ),
-        2
-    )
-
-    total_cout = round(
-        sum(
-            _to_float(d.cout_total)
-            for d in devis_list
-        ),
-        2
-    )
-
-    marge_globale_eur = round(
-        total_devis_ht - total_cout,
-        2
-    )
-
-    taux_rendement_cout_pct = round(
-        (marge_globale_eur / total_cout) * 100,
-        2
-    ) if total_cout > 0 else 0.0
-
-    taux_marque_global = round(
-        (marge_globale_eur / total_devis_ht) * 100,
-        2
-    ) if total_devis_ht > 0 else 0.0
-
-    warnings = []
-
-    if (
-        total_devis_ht > 0
-        and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE
-    ):
-        warnings.append(
-            f"Taux de marque global faible : "
-            f"{taux_marque_global}% "
-            f"(seuil minimum : "
-            f"{TRUTH_GATE_MIN_TAUX_MARQUE}%)"
-        )
-
-    return {
-        "id_projet": str(projet.id),
-        "nom_projet": projet.nom_projet,
-        "budget_initial_ht": _to_float(
-            projet.budget_initial_ht
-        ),
-        "marge_cible_pct": _to_float(
-            getattr(
-                projet,
-                "marge_cible_pct",
-                30.0
-            )
-        ),
-        "statut": getattr(
-            projet,
-            "statut",
-            "EN_COURS"
-        ),
-        "client_id": getattr(
-            projet,
-            "client_id",
-            None
-        ),
-        "total_devis_ht": total_devis_ht,
-        "total_cout": total_cout,
-        "marge_globale_eur": marge_globale_eur,
-        "taux_rendement_cout_pct": taux_rendement_cout_pct,
-        "taux_marque_global": taux_marque_global,
-        "can_send": (
-            total_devis_ht > 0
-            and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE
-        ),
-        "nombre_devis": len(devis_list),
-        "warnings": warnings,
-        "updated_at": datetime.now(
-            timezone.utc
-        ).isoformat()
+        "status": "ok",
+        "service": "assawin-backend"
     }
