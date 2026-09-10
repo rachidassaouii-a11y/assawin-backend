@@ -18,16 +18,35 @@ def generate_uuid():
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
+
+    email = Column(
+        String,
+        unique=True,
+        index=True,
+        nullable=False
+    )
+
+    hashed_password = Column(
+        String,
+        nullable=False
+    )
+
     nom = Column(String)
+
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc)
     )
 
-    projets = relationship("Projet", back_populates="user")
+    projets = relationship(
+        "Projet",
+        back_populates="user"
+    )
 
 
 # =====================================================
@@ -37,7 +56,11 @@ class User(Base):
 class Client(Base):
     __tablename__ = "clients"
 
-    id = Column(String(36), primary_key=True, default=generate_uuid)
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
 
     user_id = Column(
         String(36),
@@ -45,7 +68,10 @@ class Client(Base):
         nullable=False
     )
 
-    nom = Column(String, nullable=False)
+    nom = Column(
+        String,
+        nullable=False
+    )
 
     type_client = Column(
         String,
@@ -100,6 +126,26 @@ class Projet(Base):
         String(36),
         ForeignKey("clients.id"),
         nullable=True
+    )
+
+    adresse = Column(
+        String,
+        nullable=True
+    )
+
+    description = Column(
+        String,
+        nullable=True
+    )
+
+    marge_cible_pct = Column(
+        Float,
+        default=30.0
+    )
+
+    statut = Column(
+        String,
+        default="EN_COURS"
     )
 
     created_at = Column(
@@ -170,25 +216,6 @@ class Devis(Base):
         Float,
         default=0.0
     )
-    marge_cible_pct = Column(
-    Float,
-    default=30.0
-)
-
-statut = Column(
-    String,
-    default="EN_COURS"
-)
-
-description = Column(
-    String,
-    nullable=True
-)
-
-adresse = Column(
-    String,
-    nullable=True
-)
 
     projet_id = Column(
         String(36),
@@ -403,22 +430,3 @@ class Notification(Base):
         DateTime,
         default=lambda: datetime.now(timezone.utc)
     )
-marge_cible_pct = Column(
-    Float,
-    default=30.0
-)
-
-statut = Column(
-    String,
-    default="EN_COURS"
-)
-
-description = Column(
-    String,
-    nullable=True
-)
-
-adresse = Column(
-    String,
-    nullable=True
-)
