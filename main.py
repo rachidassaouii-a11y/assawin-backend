@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from app.core.database import engine
 from app.models.all_models import Base  # la VRAIE Base — celle où les modèles sont réellement enregistrés
 
@@ -28,6 +29,15 @@ app.add_middleware(
 
 # IMPORTANT : Base vient de app.models.all_models, PAS de app.core.database.
 Base.metadata.create_all(bind=engine)
+
+# Migration automatique : ajoute les colonnes manquantes sur les tables déjà existantes
+with engine.connect() as conn:
+    conn.execute(text("ALTER TABLE projets ADD COLUMN IF NOT EXISTS adresse VARCHAR"))
+    conn.execute(text("ALTER TABLE projets ADD COLUMN IF NOT EXISTS description VARCHAR"))
+    conn.execute(text("ALTER TABLE projets ADD COLUMN IF NOT EXISTS client_id VARCHAR(36)"))
+    conn.execute(text("ALTER TABLE projets ADD COLUMN IF NOT EXISTS marge_cible_pct FLOAT DEFAULT 30.0"))
+    conn.execute(text("ALTER TABLE projets ADD COLUMN IF NOT EXISTS statut VARCHAR DEFAULT 'EN_COURS'"))
+    conn.commit()
 
 app.include_router(auth_router)
 app.include_router(projets_router)
