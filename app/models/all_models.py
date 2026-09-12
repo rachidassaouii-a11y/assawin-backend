@@ -83,6 +83,12 @@ class Client(Base):
     adresse = Column(String)
     siret = Column(String)
 
+    numero_client = Column(
+        String,
+        unique=True,
+        nullable=True
+    )
+
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc)
@@ -220,6 +226,18 @@ class Devis(Base):
     projet_id = Column(
         String(36),
         ForeignKey("projets.id")
+    )
+
+    numero_devis = Column(
+        String,
+        unique=True,
+        nullable=True
+    )
+
+    numero_facture = Column(
+        String,
+        unique=True,
+        nullable=True
     )
 
     created_at = Column(
