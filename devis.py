@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.all_models import Devis, Projet, User
+from app.models.all_models import Devis, Projet, Client, User
 
 
 router = APIRouter(
@@ -60,6 +60,8 @@ class DevisPersistedResponse(DevisResponse):
     id_projet: str
     statut: str
     reference: str
+    numero_devis: Optional[str] = None
+    numero_facture: Optional[str] = None
 
 
 def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> dict:
@@ -128,6 +130,39 @@ def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
     return {"warnings": warnings, "can_send": can_send}
 
 
+def _extraire_suffixe_client(numero_client: Optional[str]) -> str:
+    """Extrait la partie numérique d'un numéro client (CLI-0001 -> 0001).
+    Retourne 0000 si le client n'a pas encore de numéro ou n'existe pas."""
+    if numero_client and "-" in numero_client:
+        return numero_client.split("-", 1)[1]
+    return "0000"
+
+
+def _generer_numero_devis(db: Session, projet: Projet, current_user_id: str) -> str:
+    if projet.client_id:
+        client = db.query(Client).filter(Client.id == projet.client_id).first()
+        suffixe_client = _extraire_suffixe_client(
+            getattr(client, "numero_client", None) if client else None
+        )
+        nombre_devis_client = (
+            db.query(Devis)
+            .join(Projet, Devis.projet_id == Projet.id)
+            .filter(Projet.client_id == projet.client_id)
+            .count()
+        )
+    else:
+        suffixe_client = "0000"
+        nombre_devis_client = (
+            db.query(Devis)
+            .join(Projet, Devis.projet_id == Projet.id)
+            .filter(Projet.client_id.is_(None), Projet.user_id == current_user_id)
+            .count()
+        )
+
+    compteur = nombre_devis_client + 1
+    return f"DEV-{suffixe_client}-{compteur:02d}"
+
+
 @router.get("/", response_model=List[DevisPersistedResponse])
 def lister_devis(
     db: Session = Depends(get_db),
@@ -175,6 +210,8 @@ def lister_devis(
             "id_projet": str(d.projet_id),
             "statut": getattr(d, "statut", "BROUILLON"),
             "reference": getattr(d, "reference", getattr(d, "titre", "Devis")),
+            "numero_devis": getattr(d, "numero_devis", None),
+            "numero_facture": getattr(d, "numero_facture", None),
             **calculs,
             **truth_gate,
         })
@@ -230,12 +267,14 @@ def create_and_persist_devis(
 
     calculs = _calculer_totaux_devis(data.lots, data.acompte_pct)
     truth_gate = _evaluer_truth_gate(calculs, data.fournisseur_non_verifie)
+    numero_devis = _generer_numero_devis(db, projet, str(current_user.id))
 
     nouveau_devis = Devis(
         id=str(uuid.uuid4()),
         projet_id=str(projet.id),
         total_ht=calculs["total_ht"],
         cout_total=calculs["cout_total"],
+        numero_devis=numero_devis,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -248,6 +287,8 @@ def create_and_persist_devis(
         "id_projet": str(nouveau_devis.projet_id),
         "statut": "BROUILLON",
         "reference": data.titre.strip(),
+        "numero_devis": nouveau_devis.numero_devis,
+        "numero_facture": getattr(nouveau_devis, "numero_facture", None),
         **calculs,
         **truth_gate,
     }
@@ -293,6 +334,11 @@ def update_devis(
     if hasattr(devis, "reference"):
         devis.reference = data.titre.strip()
 
+    if not getattr(devis, "numero_devis", None):
+        projet = db.query(Projet).filter(Projet.id == devis.projet_id).first()
+        if projet:
+            devis.numero_devis = _generer_numero_devis(db, projet, str(current_user.id))
+
     db.commit()
     db.refresh(devis)
 
@@ -301,6 +347,84 @@ def update_devis(
         "id_projet": str(devis.projet_id),
         "statut": getattr(devis, "statut", "BROUILLON"),
         "reference": data.titre.strip(),
+        "numero_devis": getattr(devis, "numero_devis", None),
+        "numero_facture": getattr(devis, "numero_facture", None),
+        **calculs,
+        **truth_gate,
+    }
+
+
+@router.put("/{id_devis}/facturer", response_model=DevisPersistedResponse)
+def facturer_devis(
+    id_devis: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        uuid.UUID(id_devis)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format id_devis UUID invalide"
+        )
+
+    devis = (
+        db.query(Devis)
+        .join(Projet, Devis.projet_id == Projet.id)
+        .filter(
+            Devis.id == id_devis,
+            Projet.user_id == str(current_user.id)
+        )
+        .first()
+    )
+
+    if not devis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Devis introuvable ou non autorisé"
+        )
+
+    if getattr(devis, "numero_facture", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ce devis est déjà facturé sous le numéro {devis.numero_facture}"
+        )
+
+    if not getattr(devis, "numero_devis", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ce devis n'a pas de numéro de devis, impossible de générer une facture"
+        )
+
+    devis.numero_facture = devis.numero_devis.replace("DEV-", "FAC-", 1)
+    db.commit()
+    db.refresh(devis)
+
+    total_ht = float(devis.total_ht or 0.0)
+    cout_total = float(devis.cout_total or 0.0)
+    calculs = {
+        "total_ht": total_ht,
+        "cout_total": cout_total,
+        "total_tva": round(total_ht * 0.2, 2),
+        "total_ttc": round(total_ht + round(total_ht * 0.2, 2), 2),
+        "marge_brute_eur": round(total_ht - cout_total, 2),
+        "taux_rendement_cout_pct": round(
+            ((total_ht - cout_total) / cout_total) * 100, 2
+        ) if cout_total > 0 else 0.0,
+        "taux_marque_pct": round(
+            ((total_ht - cout_total) / total_ht) * 100, 2
+        ) if total_ht > 0 else 0.0,
+        "acompte_montant": 0.0,
+    }
+    truth_gate = _evaluer_truth_gate(calculs, False)
+
+    return {
+        "id_devis": str(devis.id),
+        "id_projet": str(devis.projet_id),
+        "statut": getattr(devis, "statut", "BROUILLON"),
+        "reference": getattr(devis, "reference", "Devis"),
+        "numero_devis": devis.numero_devis,
+        "numero_facture": devis.numero_facture,
         **calculs,
         **truth_gate,
     }
