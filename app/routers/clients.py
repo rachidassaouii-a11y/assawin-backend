@@ -30,9 +30,19 @@ class ClientResponse(BaseModel):
     email: Optional[str] = None
     adresse: Optional[str] = None
     siret: Optional[str] = None
+    numero_client: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+def _generer_numero_client(db: Session, user_id: str) -> str:
+    nombre_clients = (
+        db.query(Client)
+        .filter(Client.user_id == user_id)
+        .count()
+    )
+    return f"CLI-{nombre_clients + 1:04d}"
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ClientResponse)
@@ -41,6 +51,8 @@ def create_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    numero_client = _generer_numero_client(db, str(current_user.id))
+
     client = Client(
         id=str(uuid.uuid4()),
         user_id=str(current_user.id),
@@ -50,6 +62,7 @@ def create_client(
         email=data.email,
         adresse=data.adresse,
         siret=data.siret,
+        numero_client=numero_client,
         created_at=datetime.now(timezone.utc),
     )
     db.add(client)
@@ -99,6 +112,7 @@ def get_client_detail(
         "email": client.email,
         "adresse": client.adresse,
         "siret": client.siret,
+        "numero_client": getattr(client, "numero_client", None),
         "nombre_projets": len(projets),
         "nombre_devis": len(devis_list),
         "ca_total": ca_total,
@@ -126,6 +140,10 @@ def update_client(
     client.email = data.email
     client.adresse = data.adresse
     client.siret = data.siret
+
+    if not getattr(client, "numero_client", None):
+        client.numero_client = _generer_numero_client(db, str(current_user.id))
+
     db.commit()
     db.refresh(client)
     return client
