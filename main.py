@@ -40,7 +40,7 @@ Base.metadata.create_all(bind=engine)
 
 # ============================================================
 # MIGRATION AUTOMATIQUE
-# Ajoute les colonnes manquantes à la table projets
+# Ajoute les colonnes manquantes aux tables existantes
 # ============================================================
 
 with engine.connect() as conn:
@@ -77,6 +77,27 @@ with engine.connect() as conn:
         text(
             "ALTER TABLE projets "
             "ADD COLUMN IF NOT EXISTS statut VARCHAR DEFAULT 'EN_COURS'"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE clients "
+            "ADD COLUMN IF NOT EXISTS numero_client VARCHAR"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS numero_devis VARCHAR"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS numero_facture VARCHAR"
         )
     )
 
