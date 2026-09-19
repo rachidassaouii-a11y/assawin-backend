@@ -107,6 +107,40 @@ def _calculer_totaux_devis(lots: List[LotDevisCreate], acompte_pct: float) -> di
     }
 
 
+def _totaux_depuis_devis_persiste(devis: Devis) -> dict:
+    """Reconstruit le dict de calculs à partir des SEULES colonnes
+    réellement persistées sur l'objet Devis. N'invente aucun taux :
+    marge_brute_eur / taux_rendement_cout_pct / taux_marque_pct restent
+    des ratios dérivés de total_ht et cout_total (déjà persistés et
+    fiables), jamais de constantes forcées."""
+    total_ht = float(devis.total_ht or 0.0)
+    cout_total = float(devis.cout_total or 0.0)
+    total_tva = float(devis.total_tva or 0.0)
+    total_ttc = float(devis.total_ttc or 0.0)
+    acompte_montant = float(devis.acompte_montant or 0.0)
+
+    marge_brute_eur = round(total_ht - cout_total, 2)
+
+    taux_rendement_cout_pct = round(
+        (marge_brute_eur / cout_total) * 100, 2
+    ) if cout_total > 0 else 0.0
+
+    taux_marque_pct = round(
+        (marge_brute_eur / total_ht) * 100, 2
+    ) if total_ht > 0 else 0.0
+
+    return {
+        "total_ht": total_ht,
+        "cout_total": cout_total,
+        "total_tva": total_tva,
+        "total_ttc": total_ttc,
+        "marge_brute_eur": marge_brute_eur,
+        "taux_rendement_cout_pct": taux_rendement_cout_pct,
+        "taux_marque_pct": taux_marque_pct,
+        "acompte_montant": acompte_montant,
+    }
+
+
 def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
     warnings = []
 
@@ -131,8 +165,6 @@ def _evaluer_truth_gate(calculs: dict, fournisseur_non_verifie: bool) -> dict:
 
 
 def _extraire_suffixe_client(numero_client: Optional[str]) -> str:
-    """Extrait la partie numérique d'un numéro client (CLI-0001 -> 0001).
-    Retourne 0000 si le client n'a pas encore de numéro ou n'existe pas."""
     if numero_client and "-" in numero_client:
         return numero_client.split("-", 1)[1]
     return "0000"
@@ -178,40 +210,16 @@ def lister_devis(
     result = []
 
     for d in devis_list:
-        total_ht = float(d.total_ht or 0.0)
-        cout_total = float(d.cout_total or 0.0)
-        total_tva = round(total_ht * 0.2, 2)
-        total_ttc = round(total_ht + total_tva, 2)
-        marge_brute_eur = round(total_ht - cout_total, 2)
-        taux_rendement_cout_pct = round(
-            (marge_brute_eur / cout_total) * 100, 2
-        ) if cout_total > 0 else 0.0
-        taux_marque_pct = round(
-            (marge_brute_eur / total_ht) * 100, 2
-        ) if total_ht > 0 else 0.0
-        acompte_montant = round(total_ttc * 0.3, 2)
-
-        calculs = {
-            "total_ht": total_ht,
-            "cout_total": cout_total,
-            "total_tva": total_tva,
-            "total_ttc": total_ttc,
-            "marge_brute_eur": marge_brute_eur,
-            "taux_rendement_cout_pct": taux_rendement_cout_pct,
-            "taux_marque_pct": taux_marque_pct,
-            "acompte_montant": acompte_montant,
-        }
-
-        fournisseur_non_verifie = getattr(d, "fournisseur_non_verifie", False)
-        truth_gate = _evaluer_truth_gate(calculs, fournisseur_non_verifie)
+        calculs = _totaux_depuis_devis_persiste(d)
+        truth_gate = _evaluer_truth_gate(calculs, bool(d.fournisseur_non_verifie))
 
         result.append({
             "id_devis": str(d.id),
             "id_projet": str(d.projet_id),
-            "statut": getattr(d, "statut", "BROUILLON"),
-            "reference": getattr(d, "reference", getattr(d, "titre", "Devis")),
-            "numero_devis": getattr(d, "numero_devis", None),
-            "numero_facture": getattr(d, "numero_facture", None),
+            "statut": d.statut or "BROUILLON",
+            "reference": d.reference or "Devis",
+            "numero_devis": d.numero_devis,
+            "numero_facture": d.numero_facture,
             **calculs,
             **truth_gate,
         })
@@ -274,6 +282,13 @@ def create_and_persist_devis(
         projet_id=str(projet.id),
         total_ht=calculs["total_ht"],
         cout_total=calculs["cout_total"],
+        total_tva=calculs["total_tva"],
+        total_ttc=calculs["total_ttc"],
+        acompte_montant=calculs["acompte_montant"],
+        acompte_pct=data.acompte_pct,
+        statut="BROUILLON",
+        reference=data.titre.strip(),
+        fournisseur_non_verifie=data.fournisseur_non_verifie,
         numero_devis=numero_devis,
         created_at=datetime.now(timezone.utc),
     )
@@ -285,10 +300,10 @@ def create_and_persist_devis(
     return {
         "id_devis": str(nouveau_devis.id),
         "id_projet": str(nouveau_devis.projet_id),
-        "statut": "BROUILLON",
-        "reference": data.titre.strip(),
+        "statut": nouveau_devis.statut,
+        "reference": nouveau_devis.reference,
         "numero_devis": nouveau_devis.numero_devis,
-        "numero_facture": getattr(nouveau_devis, "numero_facture", None),
+        "numero_facture": nouveau_devis.numero_facture,
         **calculs,
         **truth_gate,
     }
@@ -330,11 +345,16 @@ def update_devis(
 
     devis.total_ht = calculs["total_ht"]
     devis.cout_total = calculs["cout_total"]
+    devis.total_tva = calculs["total_tva"]
+    devis.total_ttc = calculs["total_ttc"]
+    devis.acompte_montant = calculs["acompte_montant"]
+    devis.acompte_pct = data.acompte_pct
+    devis.reference = data.titre.strip()
+    devis.fournisseur_non_verifie = data.fournisseur_non_verifie
+    # Le statut n'est pas modifié ici : DevisCalculateRequest ne porte
+    # pas de champ statut, on ne touche donc pas à celui déjà persisté.
 
-    if hasattr(devis, "reference"):
-        devis.reference = data.titre.strip()
-
-    if not getattr(devis, "numero_devis", None):
+    if not devis.numero_devis:
         projet = db.query(Projet).filter(Projet.id == devis.projet_id).first()
         if projet:
             devis.numero_devis = _generer_numero_devis(db, projet, str(current_user.id))
@@ -345,10 +365,10 @@ def update_devis(
     return {
         "id_devis": str(devis.id),
         "id_projet": str(devis.projet_id),
-        "statut": getattr(devis, "statut", "BROUILLON"),
-        "reference": data.titre.strip(),
-        "numero_devis": getattr(devis, "numero_devis", None),
-        "numero_facture": getattr(devis, "numero_facture", None),
+        "statut": devis.statut or "BROUILLON",
+        "reference": devis.reference or "Devis",
+        "numero_devis": devis.numero_devis,
+        "numero_facture": devis.numero_facture,
         **calculs,
         **truth_gate,
     }
@@ -384,13 +404,13 @@ def facturer_devis(
             detail="Devis introuvable ou non autorisé"
         )
 
-    if getattr(devis, "numero_facture", None):
+    if devis.numero_facture:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Ce devis est déjà facturé sous le numéro {devis.numero_facture}"
         )
 
-    if not getattr(devis, "numero_devis", None):
+    if not devis.numero_devis:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ce devis n'a pas de numéro de devis, impossible de générer une facture"
@@ -400,29 +420,14 @@ def facturer_devis(
     db.commit()
     db.refresh(devis)
 
-    total_ht = float(devis.total_ht or 0.0)
-    cout_total = float(devis.cout_total or 0.0)
-    calculs = {
-        "total_ht": total_ht,
-        "cout_total": cout_total,
-        "total_tva": round(total_ht * 0.2, 2),
-        "total_ttc": round(total_ht + round(total_ht * 0.2, 2), 2),
-        "marge_brute_eur": round(total_ht - cout_total, 2),
-        "taux_rendement_cout_pct": round(
-            ((total_ht - cout_total) / cout_total) * 100, 2
-        ) if cout_total > 0 else 0.0,
-        "taux_marque_pct": round(
-            ((total_ht - cout_total) / total_ht) * 100, 2
-        ) if total_ht > 0 else 0.0,
-        "acompte_montant": 0.0,
-    }
-    truth_gate = _evaluer_truth_gate(calculs, False)
+    calculs = _totaux_depuis_devis_persiste(devis)
+    truth_gate = _evaluer_truth_gate(calculs, bool(devis.fournisseur_non_verifie))
 
     return {
         "id_devis": str(devis.id),
         "id_projet": str(devis.projet_id),
-        "statut": getattr(devis, "statut", "BROUILLON"),
-        "reference": getattr(devis, "reference", "Devis"),
+        "statut": devis.statut or "BROUILLON",
+        "reference": devis.reference or "Devis",
         "numero_devis": devis.numero_devis,
         "numero_facture": devis.numero_facture,
         **calculs,
