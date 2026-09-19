@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Float, Date, DateTime, ForeignKey
+from sqlalchemy import Column, String, Float, Boolean, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -222,6 +222,46 @@ class Devis(Base):
         Float,
         default=0.0
     )
+
+    # ---- Champs ajoutés lors du durcissement CRUD ----
+    # Auparavant masqués par des getattr(..., défaut) côté routeur,
+    # ce qui donnait l'illusion qu'ils étaient persistés alors qu'ils
+    # ne l'étaient jamais. Ils sont désormais de vraies colonnes.
+    total_tva = Column(
+        Float,
+        default=0.0
+    )
+
+    total_ttc = Column(
+        Float,
+        default=0.0
+    )
+
+    acompte_montant = Column(
+        Float,
+        default=0.0
+    )
+
+    acompte_pct = Column(
+        Float,
+        default=30.0
+    )
+
+    statut = Column(
+        String,
+        default="BROUILLON"
+    )
+
+    reference = Column(
+        String,
+        nullable=True
+    )
+
+    fournisseur_non_verifie = Column(
+        Boolean,
+        default=False
+    )
+    # ----------------------------------------------------
 
     projet_id = Column(
         String(36),
