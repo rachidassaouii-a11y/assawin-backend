@@ -101,6 +101,58 @@ with engine.connect() as conn:
         )
     )
 
+    # ---- Durcissement CRUD Devis : champs auparavant masqués par des
+    # getattr() côté routeur, jamais réellement persistés. ----
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS statut VARCHAR DEFAULT 'BROUILLON'"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS reference VARCHAR"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS acompte_pct FLOAT DEFAULT 30.0"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS fournisseur_non_verifie BOOLEAN DEFAULT FALSE"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS total_tva FLOAT DEFAULT 0.0"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS total_ttc FLOAT DEFAULT 0.0"
+        )
+    )
+
+    conn.execute(
+        text(
+            "ALTER TABLE devis "
+            "ADD COLUMN IF NOT EXISTS acompte_montant FLOAT DEFAULT 0.0"
+        )
+    )
+
     conn.commit()
 
 
