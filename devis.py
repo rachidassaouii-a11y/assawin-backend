@@ -417,6 +417,7 @@ def facturer_devis(
         )
 
     devis.numero_facture = devis.numero_devis.replace("DEV-", "FAC-", 1)
+    devis.statut = "FACTURE"
     db.commit()
     db.refresh(devis)
 
