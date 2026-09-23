@@ -17,8 +17,6 @@ router = APIRouter(
     tags=["Projets & Cockpit"]
 )
 
-TRUTH_GATE_MIN_TAUX_MARQUE = 20.0
-
 
 class ProjetCreate(BaseModel):
     nom_projet: str = Field(..., min_length=1)
@@ -341,17 +339,25 @@ def get_projet_cockpit(
         2
     ) if total_devis_ht > 0 else 0.0
 
+    # Seuil propre à CE projet — pas le seuil Truth Gate des devis (20%,
+    # notion distincte). C'est le correctif du soir : avant, ce cockpit
+    # réutilisait par erreur la constante Truth Gate au lieu de la marge
+    # cible réellement fixée pour ce chantier.
+    marge_cible_pct = _to_float(
+        getattr(projet, "marge_cible_pct", 30.0)
+    )
+
     warnings = []
 
     if (
         total_devis_ht > 0
-        and taux_marque_global < TRUTH_GATE_MIN_TAUX_MARQUE
+        and taux_marque_global < marge_cible_pct
     ):
         warnings.append(
-            f"Taux de marque global faible : "
+            f"Taux de marque global sous la marge cible du projet : "
             f"{taux_marque_global}% "
-            f"(seuil minimum : "
-            f"{TRUTH_GATE_MIN_TAUX_MARQUE}%)"
+            f"(cible : "
+            f"{marge_cible_pct}%)"
         )
 
     return {
@@ -360,13 +366,7 @@ def get_projet_cockpit(
         "budget_initial_ht": _to_float(
             projet.budget_initial_ht
         ),
-        "marge_cible_pct": _to_float(
-            getattr(
-                projet,
-                "marge_cible_pct",
-                30.0
-            )
-        ),
+        "marge_cible_pct": marge_cible_pct,
         "statut": getattr(
             projet,
             "statut",
@@ -384,7 +384,7 @@ def get_projet_cockpit(
         "taux_marque_global": taux_marque_global,
         "can_send": (
             total_devis_ht > 0
-            and taux_marque_global >= TRUTH_GATE_MIN_TAUX_MARQUE
+            and taux_marque_global >= marge_cible_pct
         ),
         "nombre_devis": len(devis_list),
         "warnings": warnings,
